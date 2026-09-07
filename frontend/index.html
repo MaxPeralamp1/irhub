@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IR Hub</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.4/tailwind.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+  --bg:        #0d0f12;
+  --surface:   #161920;
+  --surface-2: #EBEBEB;
+  --border:    #363e4d;
+  --text:      #f3f4f6; 
+  --text-dim:  #a3adc2;
+  --accent:    #6397ff;
+  --signal:    #ffb833;
+  --danger:    #ff6b6b;
+  --ok:        #34d399;
+}
+  *{ box-sizing:border-box; }
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{ font-family:'IBM Plex Mono',monospace; }
+  ::selection{ background:var(--accent); color:#0b0d10; }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .surface{ background:var(--surface); border:1px solid var(--border); }
+  .surface-2{ background:var(--surface-2); border:1px solid var(--border); }
+
+  .waveform-bar{
+    width:3px; background:var(--text-dim); border-radius:1px;
+    transition:height .15s ease, background .15s ease;
+    align-self:flex-end;
+  }
+  .waveform-bar.active{ background:var(--signal); }
+
+  @keyframes pulse-glow{
+    0%,100%{ opacity:.35; }
+    50%{ opacity:1; }
+  }
+  .learning{ animation:pulse-glow 1s ease-in-out infinite; }
+
+  .btn-key{
+    background:var(--surface-2); border:1px solid var(--border);
+    transition:transform .08s ease, border-color .12s ease, background .12s ease;
+  }
+  .btn-key:active{ transform:scale(0.96); }
+  .btn-key:hover{ border-color:#3a4150; }
+  .btn-key.has-signal{ border-color:rgba(91,141,239,.35); }
+  .btn-key.no-signal{ border-style:dashed; }
+
+  .scrollbar-thin::-webkit-scrollbar{ width:6px; height:6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb{ background:var(--border); border-radius:3px; }
+
+  .status-dot{ width:8px; height:8px; border-radius:999px; }
+  .grid-cells{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
+  #waveform{ height:32px; align-items:flex-end; overflow:hidden; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<div id="app" class="flex flex-col h-screen overflow-hidden">
+
+  <!-- ===== Header: signature waveform + connection status ===== -->
+  <header class="surface border-b flex items-center justify-between px-4 md:px-6 py-3 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,var(--accent),var(--signal));">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0116 0M7 12a5 5 0 0110 0M12 12v6" stroke="#0b0d10" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div>
+        <h1 class="text-sm font-semibold tracking-wide">IR HUB</h1>
+        <p class="text-[11px] text-[var(--text-dim)] mono">universal signal control</p>
+      </div>
+    </div>
+
+    <!-- signature: live waveform strip -->
+    <div id="waveform" class="hidden md:flex items-end gap-[3px] h-8 mx-4"></div>
+
+    <div class="flex items-center gap-4">
+      <div class="flex items-center gap-2 text-xs mono">
+        <span id="mqttDot" class="status-dot" style="background:var(--danger)"></span>
+        <span id="mqttLabel" class="text-[var(--text-dim)]">mqtt offline</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- ===== Sidebar: remote categories ===== -->
+    <aside class="w-56 md:w-64 surface border-r flex flex-col shrink-0 hidden sm:flex">
+      <div class="p-3 flex items-center justify-between">
+        <span class="text-xs uppercase tracking-widest text-[var(--text-dim)] mono">Remotes</span>
+        <button id="newRemoteBtn" class="text-xs px-2 py-1 rounded-md surface-2 hover:border-[var(--accent)] transition" title="Add remote">+ New</button>
+      </div>
+      <nav id="remoteList" class="flex-1 overflow-y-auto scrollbar-thin px-2 pb-3 space-y-1"></nav>
+    </aside>
+
+    <!-- ===== Main: remote builder ===== -->
+    <main class="flex-1 overflow-y-auto scrollbar-thin p-4 md:p-8">
+      <div id="emptyState" class="hidden flex flex-col items-center justify-center h-full text-center text-[var(--text-dim)]">
+        <p class="mono text-sm mb-2">no remotes yet</p>
+        <p class="text-xs">create one from the sidebar to start mapping buttons</p>
+      </div>
+
+      <div id="remoteView" class="hidden max-w-3xl mx-auto">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center gap-2">
+            <input id="remoteNameInput" class="bg-transparent text-xl font-semibold outline-none border-b border-transparent focus:border-[var(--accent)] px-0.5" />
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="addButtonBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono">+ Add Button</button>
+            <button id="deleteRemoteBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--danger)] transition mono text-[var(--danger)]">Delete</button>
+          </div>
+        </div>
+
+        <div id="buttonGrid" class="grid-cells"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ===== Toast / learn feedback ===== -->
+  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 surface px-4 py-2.5 rounded-lg text-sm shadow-lg z-50"></div>
+</div>
+
+<!-- ===== Button edit / learn modal ===== -->
+<div id="modalBackdrop" class="hidden fixed inset-0 bg-black/60 z-40 items-center justify-center px-4">
+  <div class="surface rounded-xl w-full max-w-sm p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold mono">EDIT BUTTON</h2>
+      <button id="modalClose" class="text-[var(--text-dim)] hover:text-white text-lg leading-none">&times;</button>
+    </div>
+
+    <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Label</label>
+    <input id="modalLabel" class="w-full surface-2 rounded-md px-3 py-2 text-sm mb-4 outline-none focus:border-[var(--accent)] border" />
+
+    <div class="mb-4">
+      <label class="block text-xs text-[var(--text-dim)] mb-2 mono">Signal</label>
+      <div id="modalSignalInfo" class="text-xs mono px-3 py-2 rounded-md surface-2 border border-[var(--border)] text-[var(--text-dim)]">
+        no signal learned
+      </div>
+    </div>
+
+    <button id="modalLearnBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--signal); color:#0b0d10;">
+      Learn Signal
+    </button>
+    <button id="modalSaveBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--accent); color:#0b0d10;">
+      Save
+    </button>
+    <button id="modalDeleteBtn" class="w-full py-2 rounded-md text-xs mono transition" style="color:var(--danger);">
+      Delete button
+    </button>
+  </div>
+</div>
+
+<script>
+  window.IRHUB_API_BASE = 'http://localhost:3000';
+  window.IRHUB_WS_URL = 'ws://localhost:3000/ws';
+</script>
+<script src="app.js"></script>
+</body>
+</html>
