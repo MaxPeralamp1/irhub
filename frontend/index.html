@@ -36,7 +36,6 @@
   .waveform-bar{
     width:3px; background:var(--text-dim); border-radius:1px;
     transition:height .15s ease, background .15s ease;
-    align-self:flex-end;
   }
   .waveform-bar.active{ background:var(--signal); }
 
@@ -60,7 +59,6 @@
 
   .status-dot{ width:8px; height:8px; border-radius:999px; }
   .grid-cells{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
-  #waveform{ height:32px; align-items:flex-end; overflow:hidden; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -98,7 +96,15 @@
         <span class="text-xs uppercase tracking-widest text-[var(--text-dim)] mono">Remotes</span>
         <button id="newRemoteBtn" class="text-xs px-2 py-1 rounded-md surface-2 hover:border-[var(--accent)] transition" title="Add remote">+ New</button>
       </div>
-      <nav id="remoteList" class="flex-1 overflow-y-auto scrollbar-thin px-2 pb-3 space-y-1"></nav>
+      <nav id="remoteList" class="overflow-y-auto scrollbar-thin px-2 pb-2 space-y-1"></nav>
+
+      <div class="px-3 pt-2 pb-1 border-t border-[var(--border)] mt-auto">
+        <span class="text-xs uppercase tracking-widest text-[var(--text-dim)] mono">Automation</span>
+      </div>
+      <nav class="px-2 pb-3 space-y-1">
+        <button id="navRoutinesBtn" class="w-full text-left px-3 py-2 rounded-md text-sm transition hover:bg-white/5">⚡ Routines</button>
+        <button id="navRulesBtn" class="w-full text-left px-3 py-2 rounded-md text-sm transition hover:bg-white/5">💸 Price Rules</button>
+      </nav>
     </aside>
 
     <!-- ===== Main: remote builder ===== -->
@@ -120,6 +126,31 @@
         </div>
 
         <div id="buttonGrid" class="grid-cells"></div>
+      </div>
+
+      <!-- ===== Routines panel ===== -->
+      <div id="routinesView" class="hidden max-w-2xl mx-auto space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-xl font-semibold">Routines</h1>
+          <button id="newRoutineBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono">+ New Routine</button>
+        </div>
+        <div id="routinesList" class="space-y-3"></div>
+      </div>
+
+      <!-- ===== Price Rules panel ===== -->
+      <div id="rulesView" class="hidden max-w-2xl mx-auto space-y-6">
+        <div class="flex items-center justify-between">
+          <h1 class="text-xl font-semibold">Price Rules</h1>
+          <button id="newRuleBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono">+ New Rule</button>
+        </div>
+        <div id="currentPriceCard" class="surface rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p class="text-xs text-[var(--text-dim)] mono uppercase tracking-widest">Current spot price</p>
+            <p id="currentPriceValue" class="text-2xl font-semibold mono mt-1">--</p>
+          </div>
+          <span id="currentPriceUpdated" class="text-xs text-[var(--text-dim)] mono"></span>
+        </div>
+        <div id="rulesList" class="space-y-3"></div>
       </div>
     </main>
   </div>
@@ -158,6 +189,80 @@
   </div>
 </div>
 
+<!-- ===== Routine builder modal ===== -->
+<div id="routineModalBackdrop" class="hidden fixed inset-0 bg-black/60 z-40 items-center justify-center px-4">
+  <div class="surface rounded-xl w-full max-w-md p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold mono">ROUTINE</h2>
+      <button id="routineModalClose" class="text-[var(--text-dim)] hover:text-white text-lg leading-none">&times;</button>
+    </div>
+
+    <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Name</label>
+    <input id="routineNameInput" class="w-full surface-2 rounded-md px-3 py-2 text-sm mb-4 outline-none focus:border-[var(--accent)] border" placeholder="Evening wind-down" />
+
+    <label class="block text-xs text-[var(--text-dim)] mb-2 mono">Steps</label>
+    <div id="routineStepsList" class="space-y-2 mb-3"></div>
+
+    <div class="grid grid-cols-3 gap-2 mb-2">
+      <select id="routineStepRemote" class="surface-2 rounded-md px-2 py-2 text-xs border border-[var(--border)] col-span-1"></select>
+      <select id="routineStepButton" class="surface-2 rounded-md px-2 py-2 text-xs border border-[var(--border)] col-span-1"></select>
+      <input id="routineStepDelay" type="number" min="0" step="100" placeholder="delay ms" class="surface-2 rounded-md px-2 py-2 text-xs border border-[var(--border)] col-span-1" />
+    </div>
+    <button id="routineAddStepBtn" class="w-full py-2 rounded-md text-xs mono surface-2 hover:border-[var(--accent)] transition mb-4">+ Add Step</button>
+
+    <button id="routineSaveBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--accent); color:#0b0d10;">Save Routine</button>
+    <button id="routineDeleteBtn" class="hidden w-full py-2 rounded-md text-xs mono transition" style="color:var(--danger);">Delete routine</button>
+  </div>
+</div>
+
+<!-- ===== Price rule builder modal ===== -->
+<div id="ruleModalBackdrop" class="hidden fixed inset-0 bg-black/60 z-40 items-center justify-center px-4">
+  <div class="surface rounded-xl w-full max-w-md p-5">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold mono">PRICE RULE</h2>
+      <button id="ruleModalClose" class="text-[var(--text-dim)] hover:text-white text-lg leading-none">&times;</button>
+    </div>
+
+    <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Name</label>
+    <input id="ruleNameInput" class="w-full surface-2 rounded-md px-3 py-2 text-sm mb-4 outline-none focus:border-[var(--accent)] border" placeholder="Cheap hours AC boost" />
+
+    <div class="grid grid-cols-2 gap-2 mb-4">
+      <div>
+        <label class="block text-xs text-[var(--text-dim)] mb-1 mono">When price is</label>
+        <select id="ruleConditionSelect" class="w-full surface-2 rounded-md px-2 py-2 text-sm border border-[var(--border)]">
+          <option value="below">below</option>
+          <option value="above">above</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Threshold (c/kWh)</label>
+        <input id="ruleThresholdInput" type="number" step="0.1" class="w-full surface-2 rounded-md px-2 py-2 text-sm border border-[var(--border)]" placeholder="5.0" />
+      </div>
+    </div>
+
+    <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Then run</label>
+    <select id="ruleActionType" class="w-full surface-2 rounded-md px-2 py-2 text-sm mb-2 border border-[var(--border)]">
+      <option value="button">a single button</option>
+      <option value="routine">a routine</option>
+    </select>
+
+    <div id="ruleButtonTargetRow" class="grid grid-cols-2 gap-2 mb-4">
+      <select id="ruleTargetRemote" class="surface-2 rounded-md px-2 py-2 text-sm border border-[var(--border)]"></select>
+      <select id="ruleTargetButton" class="surface-2 rounded-md px-2 py-2 text-sm border border-[var(--border)]"></select>
+    </div>
+    <div id="ruleRoutineTargetRow" class="hidden mb-4">
+      <select id="ruleTargetRoutine" class="w-full surface-2 rounded-md px-2 py-2 text-sm border border-[var(--border)]"></select>
+    </div>
+
+    <label class="flex items-center gap-2 text-xs mono text-[var(--text-dim)] mb-4">
+      <input id="ruleEnabledCheckbox" type="checkbox" checked /> Enabled
+    </label>
+
+    <button id="ruleSaveBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--accent); color:#0b0d10;">Save Rule</button>
+    <button id="ruleDeleteBtn" class="hidden w-full py-2 rounded-md text-xs mono transition" style="color:var(--danger);">Delete rule</button>
+  </div>
+</div>
+
 <script>
   window.IRHUB_API_BASE = 'http://localhost:3000';
   window.IRHUB_WS_URL = 'ws://localhost:3000/ws';
@@ -165,3 +270,4 @@
 <script src="app.js"></script>
 </body>
 </html>
+

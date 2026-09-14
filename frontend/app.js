@@ -11,6 +11,13 @@ const state = {
   activeRemoteId: null,
   editingButtonId: null,
   learning: false,
+
+  view: 'remote',
+  routines: [],
+  rules: [],
+  routineDraftSteps: [],
+  editingRoutineId: null,
+  editingRuleId: null,
 };
 
 const els = {
@@ -33,6 +40,43 @@ const els = {
   modalLearnBtn: document.getElementById('modalLearnBtn'),
   modalSaveBtn: document.getElementById('modalSaveBtn'),
   modalDeleteBtn: document.getElementById('modalDeleteBtn'),
+
+  navRoutinesBtn: document.getElementById('navRoutinesBtn'),
+  navRulesBtn: document.getElementById('navRulesBtn'),
+  routinesView: document.getElementById('routinesView'),
+  rulesView: document.getElementById('rulesView'),
+  routinesList: document.getElementById('routinesList'),
+  rulesList: document.getElementById('rulesList'),
+  newRoutineBtn: document.getElementById('newRoutineBtn'),
+  newRuleBtn: document.getElementById('newRuleBtn'),
+  currentPriceValue: document.getElementById('currentPriceValue'),
+  currentPriceUpdated: document.getElementById('currentPriceUpdated'),
+
+  routineModalBackdrop: document.getElementById('routineModalBackdrop'),
+  routineModalClose: document.getElementById('routineModalClose'),
+  routineNameInput: document.getElementById('routineNameInput'),
+  routineStepsList: document.getElementById('routineStepsList'),
+  routineStepRemote: document.getElementById('routineStepRemote'),
+  routineStepButton: document.getElementById('routineStepButton'),
+  routineStepDelay: document.getElementById('routineStepDelay'),
+  routineAddStepBtn: document.getElementById('routineAddStepBtn'),
+  routineSaveBtn: document.getElementById('routineSaveBtn'),
+  routineDeleteBtn: document.getElementById('routineDeleteBtn'),
+
+  ruleModalBackdrop: document.getElementById('ruleModalBackdrop'),
+  ruleModalClose: document.getElementById('ruleModalClose'),
+  ruleNameInput: document.getElementById('ruleNameInput'),
+  ruleConditionSelect: document.getElementById('ruleConditionSelect'),
+  ruleThresholdInput: document.getElementById('ruleThresholdInput'),
+  ruleActionType: document.getElementById('ruleActionType'),
+  ruleButtonTargetRow: document.getElementById('ruleButtonTargetRow'),
+  ruleRoutineTargetRow: document.getElementById('ruleRoutineTargetRow'),
+  ruleTargetRemote: document.getElementById('ruleTargetRemote'),
+  ruleTargetButton: document.getElementById('ruleTargetButton'),
+  ruleTargetRoutine: document.getElementById('ruleTargetRoutine'),
+  ruleEnabledCheckbox: document.getElementById('ruleEnabledCheckbox'),
+  ruleSaveBtn: document.getElementById('ruleSaveBtn'),
+  ruleDeleteBtn: document.getElementById('ruleDeleteBtn'),
 };
 
 //API helpers
@@ -57,7 +101,15 @@ const armLearn = (remoteId, buttonId) =>
   api('/api/learn', { method: 'POST', body: JSON.stringify({ remoteId, buttonId }) });
 const cancelLearn = () => api('/api/learn', { method: 'DELETE' });
 
-//oast
+
+const getRoutines = () => api('/api/routines');
+const saveRoutine = (routine) => api('/api/routines', {method: 'POST', body: JSON.stringify(routine)});
+const deleteRoutine = (id) => api(`/api/routines/${id}`, {method: 'DELETE'});
+const runRoutine = (id) => api(`/api/routines/${id}/run`, {method:'DELETE'});
+
+const getCurrentPrice = () => ('/api/price/current');
+
+//toast
 
 let toastTimer = null;
 function toast(msg, kind = 'info') {
@@ -163,6 +215,34 @@ function renderRemoteView() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+function showView(view){
+  state.view = view;
+  els.remoteView.classList.toggle('hidden', view !== 'remote');
+  els.emptyState.classList.toggle('hidden', view !== 'remote' || state.remotes.length > 0);
+  els.routinesView.classList.toggle('hidden', view !== 'routines');
+  els.rulesView.classList.toggle('hidden', view !== 'rules');
+
+  els.navRoutinesBtn.classList.toggle('surface-2', view === 'routines');
+  els.navRulesBtn.classList.toggle('surface-2', view === 'rules');
+
+  if (view === 'remote') renderRemoteView();
+  if (view === 'routines') renderRoutinesList();
+  if (view === 'rules') { renderRulesList(); refreshCurrentPrice(); }
+}
+
+function renderRoutinesList() {
+  els.routineList.innerHTML = '';
+  if(state.routines.length === 0){
+    els.routinesList.innerHTML = '<p class="text-sm text-[var(--text-dim)]"> No routines yet. Create one to chain button presses across any remotes</p>';
+    return;
+  }
+
+}
+
+
+
+//continue from here stupid max remember
 
 function renderAll() {
   renderSidebar();

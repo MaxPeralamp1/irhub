@@ -24,12 +24,16 @@ const TOPIC_SEND = 'irhub/send';
 const TOPIC_LEARNED = 'irhub/learned';
 const TOPIC_STATUS = 'irhub/status';
 
+const PRICE_API_URL = 'https://api.porssisahko.net/v2/latest-prices.json';
+const PRICE_REFRESH_MS = 15*60*1000;
+const RULE_EVAL_MS = 60*1000;
+
 
 //Persistence (lowdb / JSON file)
 
 const adapter = new FileSync(path.join(__dirname, 'db.json'));
 const db = low(adapter);
-db.defaults({ remotes: [] }).write();
+db.defaults({ remotes: [], routines: [], priceRules: [] }).write();
 
 
 //Express + HTTP + WebSocket
@@ -73,6 +77,125 @@ mqttClient.on('connect', () => {
 mqttClient.on('reconnect', () => console.log('[mqtt] reconnecting...'));
 mqttClient.on('close', () => broadcast('mqtt-status', { connected: false }));
 mqttClient.on('error', (err) => console.error('[mqtt] error', err.message));
+
+
+// Electricity spot price (porssisahko.net) — fetched every 15 min, cached
+
+let priceCache = {prices: [], fetchedAt: 0};
+
+async function refreshPrices(){
+  try{
+    const res = await fetch(PRICE_API_URL);
+    if (!res.ok) throw new ERROR(`HTTP ${res.status}`);
+    const data = await res.json();
+    priceCache = {prices: data.prices || [], fetchedAt: Date.now()};
+    console.log(`[price] refreshed, ${priceCache.prices.length}blocks cached`);
+  } catch (err){
+    console.error('[price] refresh failed:', err.message);
+  }
+}
+
+// Returns the cents/kWh price for the current 15-min block, or null if the
+// cache is empty/stale and doesn't cover "now".
+
+function getCurrentPriceCents(){
+  const now = Date.now();
+  const block = priceCache.prices.find((p) =>{
+    const start = new Date(p.startDate).getTime();
+    const end = new Date(p.endDate).getTime()
+    return now >= start && now < end;
+  });
+  return block ? block.price : null;
+}
+
+// Shared action executor — used by manual /api/send, routines, and rules
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+// Publishes a single button's learned signal to irhub/send. Throws if the
+// button/signal doesn't exist so callers can report a clear error.
+
+function fireButton(remoteId, buttonId) {
+  return new Promise((resolve, reject) => {
+    const remote = db.get('remotes').find({ id: remoteId }).value();
+    const button = remote && remote.buttons.find((b) => b.id === buttonId);
+
+    if (!button) return reject(new Error(`button ${remoteId}/${buttonId} not found`));
+    if (!button.signal) return reject(new Error(`button ${remoteId}/${buttonId} has no learned signal`));
+
+    const payload = JSON.stringify({
+      carrier_freq: button.signal.carrier_freq,
+      pulses: button.signal.pulses,
+    });
+
+    mqttClient.publish(TOPIC_SEND, payload, { qos: 1 }, (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+}
+
+// Runs a routine's steps in order, waiting each step's delay before firing
+// the next button. Broadcasts progress over WebSocket so the UI can show it
+// running live.
+
+async function runRoutine(routineId){
+  const routine = db.get('routines').find({id: routineId}).value();
+  if (!routine) throw new Error('routine not found');
+
+  broadcast('routine-started', {routineId, name: routine.name});
+
+  for (let i = 0; i < routine.steps.length; i++){
+    const step = routine.steps[i];
+    if (step.delayMs) await sleep(step.delayMs);
+
+    try {
+      await fireButton(step.remoteId, step.buttonId);
+      broadcast('routine-step', {routineId, stepIndex: i, success: true});
+    } catch (err) {
+       broadcast('routine-step', {routineId, stepIndex: i, success: false, error: err.message});
+      // Keep going with remaining steps rather than aborting the whole routine.
+    }
+  }
+  broadcast('routine-finished', {routineId});
+}
+
+// Price rules — "when price goes above/below X, fire this button/routine"
+// Edge-triggered: only fires the moment the condition newly becomes true,
+// not on every evaluation tick while it stays true.
+
+async function evaluateRules(){
+  const priceCents = getCurrentPriceCents();
+  if (priceCents === null) return;
+
+  const rules = db.get('priceRules').value;
+
+  for(const rule of rules){
+    const conditionMet =
+        rule.condition === 'below' ? priceCents < rule.thresholdCents : priceCents > rule.thresholdCents;
+
+    if (conditionMet && !rule.lastTriggeredState){
+      console.log(`[rules] "${rule.name}" triggered (price=${priceCents}c, threshold=${rule.thresholdCents}c)`);
+      try {
+        if (rule.action.type === 'button'){
+          await fireButton(rule.action.remoteId, rule.action.buttonId);
+        } else if (rule.action.type === 'routine'){
+          await runRoutine(rule.action.routineId);
+        }
+        broadcast('rule-triggered', { ruleId: rule.id, name: rule.name, priceCents });
+      } catch (err){
+        console.error(`[rules] "${rule.name}" action failed:`, err.message);
+        broadcast('rule-triggered', { ruleId: rule.id, name: rule.name, priceCents, error: err.message });
+      }
+    }
+    // Persist the new edge state regardless, so we don't re-fire until the
+    // condition genuinely flips off and back on again.
+    db.get('priceRules').find({ id: rule.id }).assign({ lastTriggeredState: conditionMet }).write();
+  }
+}
 
 
 //Learn-mode session state
@@ -265,6 +388,122 @@ app.delete('/api/learn', (req, res) => {
 //GET /api/status - hub/mqtt connectivity snapshot
 app.get('/api/status', (req, res) => {
   res.json({ mqttConnected: mqttClient.connected, learnSessionActive: !!learnSession });
+});
+
+// Electricity price REST API
+
+app.get('/api/price/current', (req, res)=>{
+  const priceCents = getCurrentPriceCents();
+  res.json({priceCents, cachedBlocks: priceCache.prices.length, fetchedAt: priceCache.fetchedAt});
+});
+
+app.get('/api/price/today', (req, res) => {
+  res.json({prices: priceCache.prices, fetchedAt: priceCache.fetchedAt});
+});
+
+// Routines REST API
+
+app.get('/api/routines', (req, res)=>{
+  res.json(db.get('routines').value());
+});
+
+// POST /api/routines - create or update a routine
+// Body: { id?, name, steps: [{ remoteId, buttonId, delayMs }] }
+
+app.post('/api/routines', (req, res)=>{
+  const {id, name, steps} = req.body || {};
+  if (!name || typeof name !== 'string'){
+    return res.status(400).json({error: 'name is required'});
+  }
+  if (!Array.isArray(steps) || steps.length === 0){
+    return res.status(400).json({error: 'steps myst be a non empty arry'});
+  }
+  const normalizedSteps = steps.map((s) => ({
+    remoteId: s.remoteId,
+    buttonId: s.buttonId,
+    delayMs: Number.isInteger(s.delayMs) ? s.delayMs : 0,
+  }));
+
+  const routineId = id || `routine-${uuidv4().slice(0, 8)}`;
+  const existing = db.get('routines').find({ id: routineId }).value();
+
+  if(existing){
+    db.get('routines').find({id: routineId}).assign({name, steps: normalizedSteps}).write();
+  } else{
+    db.get('routines').push({id: routineId, name, steps: normalizedSteps}).write();
+  }
+
+  res.status(200).json(db.get('routines').find({ id: routineId }).value());
+
+});
+
+// DELETE /api/routines/:id
+app.delete('/api/routines/:id', (req, res) => {
+  db.get('routines').remove({ id: req.params.id }).write();
+  res.status(204).end();
+});
+
+// POST /api/routines/:id/run - execute a routine's steps in order now
+app.post('/api/routines/:id/run', async (req, res) => {
+  const routine = db.get('routines').find({ id: req.params.id }).value();
+  if (!routine) return res.status(404).json({ error: 'routine not found' });
+
+  // Respond immediately; the routine runs asynchronously and reports
+  // progress over WebSocket (routine-started / routine-step / routine-finished).
+  res.status(202).json({ ok: true, running: true, routineId: routine.id });
+  runRoutine(routine.id).catch((err) => console.error('[routine] run failed:', err.message));
+});
+
+// Price rules REST API
+
+// GET /api/rules - list all price rules
+app.get('/api/rules', (req, res) => {
+  res.json(db.get('priceRules').value());
+});
+
+// POST /api/rules - create or update a price rule
+// Body: { id?, name, enabled, condition: 'below'|'above', thresholdCents,
+//         action: { type: 'button', remoteId, buttonId } | { type: 'routine', routineId } }
+app.post('/api/rules', (req, res) => {
+  const { id, name, enabled, condition, thresholdCents, action } = req.body || {};
+
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  if (condition !== 'below' && condition !== 'above') {
+    return res.status(400).json({ error: "condition must be 'below' or 'above'" });
+  }
+  if (typeof thresholdCents !== 'number') {
+    return res.status(400).json({ error: 'thresholdCents must be a number' });
+  }
+  if (!action || (action.type !== 'button' && action.type !== 'routine')) {
+    return res.status(400).json({ error: "action.type must be 'button' or 'routine'" });
+  }
+
+  const ruleId = id || `rule-${uuidv4().slice(0, 8)}`;
+  const existing = db.get('priceRules').find({ id: ruleId }).value();
+
+  const record = {
+    id: ruleId,
+    name,
+    enabled: enabled !== false,
+    condition,
+    thresholdCents,
+    action,
+    lastTriggeredState: existing ? existing.lastTriggeredState : false,
+  };
+
+  if (existing) {
+    db.get('priceRules').find({ id: ruleId }).assign(record).write();
+  } else {
+    db.get('priceRules').push(record).write();
+  }
+
+  res.status(200).json(db.get('priceRules').find({ id: ruleId }).value());
+});
+
+// DELETE /api/rules/:id
+app.delete('/api/rules/:id', (req, res) => {
+  db.get('priceRules').remove({ id: req.params.id }).write();
+  res.status(204).end();
 });
 
 app.use((req, res) => res.status(404).json({ error: 'not found' }));

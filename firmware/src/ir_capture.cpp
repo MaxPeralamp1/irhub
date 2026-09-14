@@ -71,7 +71,7 @@ static bool idle_timeout_cb(repeating_timer_t *rt) {
             portYIELD_FROM_ISR(higher_prio_woken);
         }
     }
-    return true; / keep repeating
+    return true; // keep repeating
 }
 
 } //namespace

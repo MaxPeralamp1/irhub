@@ -27,7 +27,7 @@ size_t encode_ir_message(const IrMessage &msg, char *out, size_t out_len) {
     return pos;
 }
 
-// Very small hand-rolled parser for the fixed schema. Tolerant of whitespace
+//Very small hand-rolled parser for the fixed schema. Tolerant of whitespace
 bool decode_ir_message(const char *json, size_t json_len, IrMessage &msg) {
     msg.carrier_freq = IR_CARRIER_HZ;
     msg.pulse_count = 0;

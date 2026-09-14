@@ -196,7 +196,7 @@ void task(void *params) {
             cyw43_arch_lwip_end();
 
             static int bad_link_count = 0;
-            if (link_status != CYW43_LINK_JOIN) {
+            if (link_status != CYW43_LINK_JOIN) { //may need to add CYW43_LINK_UP as an acceptable answer too
                 bad_link_count++;
                 printf("[net] link_status=%d (bad reading #%d)\n", link_status, bad_link_count);
                 if (bad_link_count >= 5) {
