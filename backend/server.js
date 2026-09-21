@@ -37,6 +37,7 @@ db.defaults({ remotes: [] }).write();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use(express.static(path.join(__dirname, '../frontend')));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -168,6 +169,7 @@ app.post('/api/remotes', (req, res) => {
         row: Number.isInteger(b.row) ? b.row : Math.floor(idx / 3),
         col: Number.isInteger(b.col) ? b.col : idx % 3,
         icon: b.icon || null,
+        color: b.color || null,
         signal: b.signal ?? (existing?.buttons.find((eb) => eb.id === b.id)?.signal ?? null),
       }))
     : existing?.buttons || [];
