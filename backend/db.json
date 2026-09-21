@@ -1063,50 +1063,23 @@
           }
         }
       ]
-    }
-  ],
-  "routines": [
-    {
-      "id": "routine-28cf1a3d",
-      "name": "Evening TV",
-      "steps": [
-        {
-          "remoteId": "living-room-tv",
-          "buttonId": "btn-power",
-          "delayMs": 0
-        },
-        {
-          "remoteId": "living-room-tv",
-          "buttonId": "btn-vol-up",
-          "delayMs": 1500
-        }
-      ]
     },
     {
-      "id": "routine-c24ac62a",
-      "name": "Test Run",
-      "steps": [
+      "id": "poop",
+      "name": "poop",
+      "icon": "remote",
+      "buttons": [
         {
-          "remoteId": "living-room-tv",
-          "buttonId": "btn-power",
-          "delayMs": 0
+          "id": "btn-e18f5e52",
+          "label": "test",
+          "row": 0,
+          "col": 0,
+          "icon": null,
+          "signal": null
         }
       ]
     }
   ],
-  "priceRules": [
-    {
-      "id": "rule-9aae171a",
-      "name": "Cheap AC on",
-      "enabled": true,
-      "condition": "below",
-      "thresholdCents": 5,
-      "action": {
-        "type": "button",
-        "remoteId": "living-room-tv",
-        "buttonId": "btn-power"
-      },
-      "lastTriggeredState": false
-    }
-  ]
+  "routines": [],
+  "priceRules": []
 }

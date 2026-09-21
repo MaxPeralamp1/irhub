@@ -86,7 +86,7 @@ let priceCache = {prices: [], fetchedAt: 0};
 async function refreshPrices(){
   try{
     const res = await fetch(PRICE_API_URL);
-    if (!res.ok) throw new ERROR(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     priceCache = {prices: data.prices || [], fetchedAt: Date.now()};
     console.log(`[price] refreshed, ${priceCache.prices.length}blocks cached`);
@@ -171,9 +171,10 @@ async function evaluateRules(){
   const priceCents = getCurrentPriceCents();
   if (priceCents === null) return;
 
-  const rules = db.get('priceRules').value;
+  const rules = db.get('priceRules').value();
 
   for(const rule of rules){
+    if (!rule.enabled) continue;
     const conditionMet =
         rule.condition === 'below' ? priceCents < rule.thresholdCents : priceCents > rule.thresholdCents;
 
@@ -416,7 +417,7 @@ app.post('/api/routines', (req, res)=>{
     return res.status(400).json({error: 'name is required'});
   }
   if (!Array.isArray(steps) || steps.length === 0){
-    return res.status(400).json({error: 'steps myst be a non empty arry'});
+    return res.status(400).json({error: 'steps must be a non-empty array'});
   }
   const normalizedSteps = steps.map((s) => ({
     remoteId: s.remoteId,
@@ -511,4 +512,8 @@ app.use((req, res) => res.status(404).json({ error: 'not found' }));
 server.listen(PORT, () => {
   console.log(`[http] IR Hub backend listening on :${PORT}`);
   console.log(`[ws]   WebSocket endpoint at ws://localhost:${PORT}/ws`);
+
+  refreshPrices();
+  setInterval(refreshPrices, PRICE_REFRESH_MS);
+  setInterval(evaluateRules, RULE_EVAL_MS);
 });

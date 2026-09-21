@@ -105,9 +105,15 @@ const cancelLearn = () => api('/api/learn', { method: 'DELETE' });
 const getRoutines = () => api('/api/routines');
 const saveRoutine = (routine) => api('/api/routines', {method: 'POST', body: JSON.stringify(routine)});
 const deleteRoutine = (id) => api(`/api/routines/${id}`, {method: 'DELETE'});
-const runRoutine = (id) => api(`/api/routines/${id}/run`, {method:'DELETE'});
+const runRoutine = (id) => api(`/api/routines/${id}/run`, {method: 'POST'});
 
-const getCurrentPrice = () => ('/api/price/current');
+const getRules = () => api('/api/rules');
+const saveRule = (rule) => api('/api/rules', {method: 'POST', body: JSON.stringify(rule)});
+const deleteRule = (id) => api(`/api/rules/${id}`, {method: 'DELETE'});
+
+const getCurrentPrice = () => api('/api/price/current');
+
+const PRICE_POLL_MS = 60 * 1000;
 
 //toast
 
@@ -165,7 +171,8 @@ function renderSidebar() {
     btn.textContent = r.name;
     btn.onclick = () => {
       state.activeRemoteId = r.id;
-      renderAll();
+      showView('remote');
+      renderSidebar();
     };
     els.remoteList.appendChild(btn);
   });
@@ -231,22 +238,131 @@ function showView(view){
   if (view === 'rules') { renderRulesList(); refreshCurrentPrice(); }
 }
 
+function describeSteps(steps) {
+  const labels = steps.map((s) => {
+    const remote = state.remotes.find((r) => r.id === s.remoteId);
+    const button = remote && remote.buttons.find((b) => b.id === s.buttonId);
+    return button ? button.label : '?';
+  });
+  return labels.length > 3 ? labels.slice(0, 3).join(' > ') + ' > ...' : labels.join(' > ');
+}
+
+function describeAction(action) {
+  if (!action) return 'no action';
+  if (action.type === 'routine') {
+    const routine = state.routines.find((r) => r.id === action.routineId);
+    return `routine "${routine ? routine.name : action.routineId}"`;
+  }
+  const remote = state.remotes.find((r) => r.id === action.remoteId);
+  const button = remote && remote.buttons.find((b) => b.id === action.buttonId);
+  return button ? `${remote.name} / ${button.label}` : 'missing button';
+}
+
 function renderRoutinesList() {
-  els.routineList.innerHTML = '';
+  els.routinesList.innerHTML = '';
   if(state.routines.length === 0){
     els.routinesList.innerHTML = '<p class="text-sm text-[var(--text-dim)]"> No routines yet. Create one to chain button presses across any remotes</p>';
     return;
   }
 
+  state.routines.forEach((routine) => {
+    const card = document.createElement('div');
+    card.className = 'surface rounded-xl p-4 flex items-center justify-between gap-3';
+
+    const info = document.createElement('div');
+    info.className = 'min-w-0';
+    info.innerHTML = `
+      <p class="text-sm font-medium truncate">${escapeHtml(routine.name)}</p>
+      <p class="text-xs text-[var(--text-dim)] mono mt-0.5">${routine.steps.length} step${routine.steps.length === 1 ? '' : 's'} &middot; ${escapeHtml(describeSteps(routine.steps))}</p>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-2 shrink-0';
+
+    const runBtn = document.createElement('button');
+    runBtn.className = 'text-xs px-3 py-1.5 rounded-md mono transition';
+    runBtn.style.background = 'var(--accent)';
+    runBtn.style.color = '#0b0d10';
+    runBtn.textContent = 'Run';
+    runBtn.onclick = () => runRoutineNow(routine);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openRoutineModal(routine);
+
+    actions.appendChild(runBtn);
+    actions.appendChild(editBtn);
+    card.appendChild(info);
+    card.appendChild(actions);
+    els.routinesList.appendChild(card);
+  });
 }
 
+function renderRulesList() {
+  els.rulesList.innerHTML = '';
+  if(state.rules.length === 0){
+    els.rulesList.innerHTML = '<p class="text-sm text-[var(--text-dim)]"> No price rules yet. Create one to react to the spot price automatically</p>';
+    return;
+  }
 
+  state.rules.forEach((rule) => {
+    const card = document.createElement('div');
+    card.className = 'surface rounded-xl p-4 flex items-center justify-between gap-3';
 
-//continue from here stupid max remember
+    const info = document.createElement('div');
+    info.className = 'min-w-0';
+    info.innerHTML = `
+      <p class="text-sm font-medium truncate">${escapeHtml(rule.name)}
+        <span class="text-[10px] mono ml-1 ${rule.enabled ? 'text-[var(--ok)]' : 'text-[var(--text-dim)]'}">${rule.enabled ? 'enabled' : 'paused'}</span>
+      </p>
+      <p class="text-xs text-[var(--text-dim)] mono mt-0.5">${escapeHtml(rule.condition)} ${rule.thresholdCents} c/kWh &rarr; ${escapeHtml(describeAction(rule.action))}</p>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-2 shrink-0';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono';
+    toggleBtn.textContent = rule.enabled ? 'Pause' : 'Enable';
+    toggleBtn.onclick = () => toggleRule(rule);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openRuleModal(rule);
+
+    actions.appendChild(toggleBtn);
+    actions.appendChild(editBtn);
+    card.appendChild(info);
+    card.appendChild(actions);
+    els.rulesList.appendChild(card);
+  });
+}
+
+async function refreshCurrentPrice() {
+  try {
+    const data = await getCurrentPrice();
+    if (data.priceCents === null || data.priceCents === undefined) {
+      els.currentPriceValue.textContent = '--';
+      els.currentPriceUpdated.textContent = data.cachedBlocks ? 'no block covers now' : 'no price data cached';
+      return;
+    }
+    els.currentPriceValue.textContent = `${data.priceCents.toFixed(2)} c/kWh`;
+    els.currentPriceUpdated.textContent = data.fetchedAt
+      ? `updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
+      : '';
+  } catch (e) {
+    els.currentPriceValue.textContent = '--';
+    els.currentPriceUpdated.textContent = 'price unavailable';
+  }
+}
 
 function renderAll() {
   renderSidebar();
-  renderRemoteView();
+  if (state.view === 'remote') renderRemoteView();
+  if (state.view === 'routines') renderRoutinesList();
+  if (state.view === 'rules') renderRulesList();
 }
 
 
@@ -261,6 +377,25 @@ async function handleButtonTap(remote, btn) {
     toast(`Sent "${btn.label}"`, 'ok');
   } catch (e) {
     toast(`Send failed: ${e.message}`, 'error');
+  }
+}
+
+async function runRoutineNow(routine) {
+  try {
+    await runRoutine(routine.id);
+    toast(`Running "${routine.name}"`, 'ok');
+  } catch (e) {
+    toast(`Run failed: ${e.message}`, 'error');
+  }
+}
+
+async function toggleRule(rule) {
+  try {
+    const saved = await saveRule({ ...rule, enabled: !rule.enabled });
+    Object.assign(rule, saved);
+    renderRulesList();
+  } catch (e) {
+    toast(e.message, 'error');
   }
 }
 
@@ -436,6 +571,273 @@ els.remoteNameInput.addEventListener('blur', () => {
   }
 });
 
+els.navRoutinesBtn.onclick = () => showView('routines');
+els.navRulesBtn.onclick = () => showView('rules');
+
+
+//Select helpers shared by both automation modals
+
+function populateRemoteSelect(select) {
+  select.innerHTML = '';
+  state.remotes.forEach((r) => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    select.appendChild(opt);
+  });
+}
+
+function populateButtonSelect(select, remoteId) {
+  select.innerHTML = '';
+  const remote = state.remotes.find((r) => r.id === remoteId);
+  if (!remote) return;
+  remote.buttons.forEach((b) => {
+    const opt = document.createElement('option');
+    opt.value = b.id;
+    opt.textContent = b.label;
+    select.appendChild(opt);
+  });
+}
+
+function populateRoutineSelect(select) {
+  select.innerHTML = '';
+  state.routines.forEach((r) => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    select.appendChild(opt);
+  });
+}
+
+
+//Routine builder modal
+
+function openRoutineModal(routine) {
+  state.editingRoutineId = routine ? routine.id : null;
+  state.routineDraftSteps = routine ? routine.steps.map((s) => ({ ...s })) : [];
+
+  els.routineNameInput.value = routine ? routine.name : '';
+  els.routineStepDelay.value = '';
+  els.routineDeleteBtn.classList.toggle('hidden', !routine);
+
+  populateRemoteSelect(els.routineStepRemote);
+  populateButtonSelect(els.routineStepButton, els.routineStepRemote.value);
+  renderRoutineSteps();
+
+  els.routineModalBackdrop.classList.remove('hidden');
+  els.routineModalBackdrop.classList.add('flex');
+}
+
+function closeRoutineModal() {
+  els.routineModalBackdrop.classList.add('hidden');
+  els.routineModalBackdrop.classList.remove('flex');
+  state.editingRoutineId = null;
+  state.routineDraftSteps = [];
+}
+
+function renderRoutineSteps() {
+  els.routineStepsList.innerHTML = '';
+  if (state.routineDraftSteps.length === 0) {
+    els.routineStepsList.innerHTML = '<p class="text-xs text-[var(--text-dim)] mono">no steps yet</p>';
+    return;
+  }
+
+  state.routineDraftSteps.forEach((step, i) => {
+    const remote = state.remotes.find((r) => r.id === step.remoteId);
+    const button = remote && remote.buttons.find((b) => b.id === step.buttonId);
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-2 surface-2 rounded-md px-3 py-2 text-xs border border-[var(--border)]';
+
+    const label = document.createElement('span');
+    label.className = 'mono truncate';
+    label.textContent = `${i + 1}. ${remote ? remote.name : '?'} / ${button ? button.label : '?'}${step.delayMs ? ` (+${step.delayMs}ms)` : ''}`;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'mono shrink-0';
+    removeBtn.style.color = 'var(--danger)';
+    removeBtn.textContent = 'remove';
+    removeBtn.onclick = () => {
+      state.routineDraftSteps.splice(i, 1);
+      renderRoutineSteps();
+    };
+
+    row.appendChild(label);
+    row.appendChild(removeBtn);
+    els.routineStepsList.appendChild(row);
+  });
+}
+
+els.newRoutineBtn.onclick = () => {
+  if (state.remotes.length === 0) {
+    toast('Create a remote with buttons first', 'error');
+    return;
+  }
+  openRoutineModal(null);
+};
+
+els.routineStepRemote.onchange = () => populateButtonSelect(els.routineStepButton, els.routineStepRemote.value);
+
+els.routineAddStepBtn.onclick = () => {
+  const remoteId = els.routineStepRemote.value;
+  const buttonId = els.routineStepButton.value;
+  if (!remoteId || !buttonId) {
+    toast('Pick a remote and a button first', 'error');
+    return;
+  }
+  const delayMs = parseInt(els.routineStepDelay.value, 10);
+  state.routineDraftSteps.push({ remoteId, buttonId, delayMs: Number.isInteger(delayMs) ? delayMs : 0 });
+  els.routineStepDelay.value = '';
+  renderRoutineSteps();
+};
+
+els.routineSaveBtn.onclick = async () => {
+  const name = els.routineNameInput.value.trim();
+  if (!name) { toast('Routine needs a name', 'error'); return; }
+  if (state.routineDraftSteps.length === 0) { toast('Add at least one step', 'error'); return; }
+
+  const payload = { name, steps: state.routineDraftSteps };
+  if (state.editingRoutineId) payload.id = state.editingRoutineId;
+
+  try {
+    const saved = await saveRoutine(payload);
+    const existing = state.routines.find((r) => r.id === saved.id);
+    if (existing) Object.assign(existing, saved); else state.routines.push(saved);
+    closeRoutineModal();
+    renderRoutinesList();
+    toast(`Saved "${saved.name}"`, 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.routineDeleteBtn.onclick = async () => {
+  const id = state.editingRoutineId;
+  if (!id) return;
+  const routine = state.routines.find((r) => r.id === id);
+  if (!confirm(`Delete routine "${routine ? routine.name : ''}"?`)) return;
+  try {
+    await deleteRoutine(id);
+    state.routines = state.routines.filter((r) => r.id !== id);
+    closeRoutineModal();
+    renderRoutinesList();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.routineModalClose.onclick = closeRoutineModal;
+els.routineModalBackdrop.onclick = (e) => { if (e.target === els.routineModalBackdrop) closeRoutineModal(); };
+
+
+//Price rule builder modal
+
+function openRuleModal(rule) {
+  state.editingRuleId = rule ? rule.id : null;
+
+  els.ruleNameInput.value = rule ? rule.name : '';
+  els.ruleConditionSelect.value = rule ? rule.condition : 'below';
+  els.ruleThresholdInput.value = rule ? rule.thresholdCents : '';
+  els.ruleActionType.value = rule && rule.action ? rule.action.type : 'button';
+  els.ruleEnabledCheckbox.checked = rule ? rule.enabled !== false : true;
+  els.ruleDeleteBtn.classList.toggle('hidden', !rule);
+
+  populateRemoteSelect(els.ruleTargetRemote);
+  populateRoutineSelect(els.ruleTargetRoutine);
+
+  if (rule && rule.action && rule.action.type === 'button') {
+    els.ruleTargetRemote.value = rule.action.remoteId;
+    populateButtonSelect(els.ruleTargetButton, rule.action.remoteId);
+    els.ruleTargetButton.value = rule.action.buttonId;
+  } else {
+    populateButtonSelect(els.ruleTargetButton, els.ruleTargetRemote.value);
+    if (rule && rule.action && rule.action.routineId) els.ruleTargetRoutine.value = rule.action.routineId;
+  }
+
+  syncRuleActionRows();
+
+  els.ruleModalBackdrop.classList.remove('hidden');
+  els.ruleModalBackdrop.classList.add('flex');
+}
+
+function closeRuleModal() {
+  els.ruleModalBackdrop.classList.add('hidden');
+  els.ruleModalBackdrop.classList.remove('flex');
+  state.editingRuleId = null;
+}
+
+function syncRuleActionRows() {
+  const isRoutine = els.ruleActionType.value === 'routine';
+  els.ruleButtonTargetRow.classList.toggle('hidden', isRoutine);
+  els.ruleRoutineTargetRow.classList.toggle('hidden', !isRoutine);
+}
+
+els.newRuleBtn.onclick = () => {
+  if (state.remotes.length === 0 && state.routines.length === 0) {
+    toast('Create a remote or a routine first', 'error');
+    return;
+  }
+  openRuleModal(null);
+};
+
+els.ruleActionType.onchange = syncRuleActionRows;
+els.ruleTargetRemote.onchange = () => populateButtonSelect(els.ruleTargetButton, els.ruleTargetRemote.value);
+
+els.ruleSaveBtn.onclick = async () => {
+  const name = els.ruleNameInput.value.trim();
+  if (!name) { toast('Rule needs a name', 'error'); return; }
+
+  const thresholdCents = parseFloat(els.ruleThresholdInput.value);
+  if (!Number.isFinite(thresholdCents)) { toast('Threshold must be a number', 'error'); return; }
+
+  let action;
+  if (els.ruleActionType.value === 'routine') {
+    if (!els.ruleTargetRoutine.value) { toast('Pick a routine', 'error'); return; }
+    action = { type: 'routine', routineId: els.ruleTargetRoutine.value };
+  } else {
+    if (!els.ruleTargetRemote.value || !els.ruleTargetButton.value) { toast('Pick a remote and a button', 'error'); return; }
+    action = { type: 'button', remoteId: els.ruleTargetRemote.value, buttonId: els.ruleTargetButton.value };
+  }
+
+  const payload = {
+    name,
+    enabled: els.ruleEnabledCheckbox.checked,
+    condition: els.ruleConditionSelect.value,
+    thresholdCents,
+    action,
+  };
+  if (state.editingRuleId) payload.id = state.editingRuleId;
+
+  try {
+    const saved = await saveRule(payload);
+    const existing = state.rules.find((r) => r.id === saved.id);
+    if (existing) Object.assign(existing, saved); else state.rules.push(saved);
+    closeRuleModal();
+    renderRulesList();
+    toast(`Saved "${saved.name}"`, 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.ruleDeleteBtn.onclick = async () => {
+  const id = state.editingRuleId;
+  if (!id) return;
+  const rule = state.rules.find((r) => r.id === id);
+  if (!confirm(`Delete rule "${rule ? rule.name : ''}"?`)) return;
+  try {
+    await deleteRule(id);
+    state.rules = state.rules.filter((r) => r.id !== id);
+    closeRuleModal();
+    renderRulesList();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.ruleModalClose.onclick = closeRuleModal;
+els.ruleModalBackdrop.onclick = (e) => { if (e.target === els.ruleModalBackdrop) closeRuleModal(); };
+
 
 //WebSocket: live learn-mode results + mqtt status
 
@@ -511,8 +913,20 @@ async function boot() {
   } catch (e) {
     toast(`Could not reach backend: ${e.message}`, 'error');
   }
-  renderAll();
+
+  try {
+    state.routines = await getRoutines();
+    state.rules = await getRules();
+  } catch (e) {
+    toast(`Could not load automation: ${e.message}`, 'error');
+  }
+
+  showView('remote');
+  renderSidebar();
   connectWs();
+
+  refreshCurrentPrice();
+  setInterval(refreshCurrentPrice, PRICE_POLL_MS);
 }
 
 boot();
