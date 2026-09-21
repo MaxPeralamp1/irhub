@@ -1,166 +1,838 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>IR Hub</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/3.4.4/tailwind.min.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-  --bg:        #0d0f12;
-  --surface:   #161920;
-  --surface-2: #EBEBEB;
-  --border:    #363e4d;
-  --text:      #f3f4f6; 
-  --text-dim:  #a3adc2;
-  --accent:    #6397ff;
-  --signal:    #ffb833;
-  --danger:    #ff6b6b;
-  --ok:        #34d399;
-}
-  *{ box-sizing:border-box; }
-  body{
-    background:var(--bg); color:var(--text);
-    font-family:'Inter',system-ui,sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  .mono{ font-family:'IBM Plex Mono',monospace; }
-  ::selection{ background:var(--accent); color:#0b0d10; }
-  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IR Hub — Universal Signal Control</title>
+  <!-- Fallback standalone Tailwind script for modern browsers -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ==================== CORE DARK THEME VARIABLES ==================== */
+    :root {
+      --bg:           #070d18;
+      --bg-header:    #0c1527;
+      --bg-alt:       #0a1222;
+      --surface:      #0f1a30;
+      --surface-card: #152442;
+      --surface-card-hover: #1c3056;
+      --border:       #1e304f;
+      --border-light: #2b4573;
+      --text:         #f8fafc;
+      --text-dim:     #cbd5e1;
+      --text-muted:   #8295b0;
+      --accent:       #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-glow:  rgba(59, 130, 246, 0.4);
+      --signal:       #f59e0b;
+      --signal-glow:  rgba(245, 158, 11, 0.4);
+      --danger:       #ef4444;
+      --ok:           #10b981;
+      --cyan:         #06b6d4;
+    }
 
-  .surface{ background:var(--surface); border:1px solid var(--border); }
-  .surface-2{ background:var(--surface-2); border:1px solid var(--border); }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-  .waveform-bar{
-    width:3px; background:var(--text-dim); border-radius:1px;
-    transition:height .15s ease, background .15s ease;
-    align-self:flex-end;
-  }
-  .waveform-bar.active{ background:var(--signal); }
+    body {
+      background: var(--bg);
+      color: #f8fafc;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
 
-  @keyframes pulse-glow{
-    0%,100%{ opacity:.35; }
-    50%{ opacity:1; }
-  }
-  .learning{ animation:pulse-glow 1s ease-in-out infinite; }
+    .mono { font-family: 'IBM Plex Mono', monospace; }
+    ::selection { background: var(--accent); color: #07090e; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  .btn-key{
-    background:var(--surface-2); border:1px solid var(--border);
-    transition:transform .08s ease, border-color .12s ease, background .12s ease;
-  }
-  .btn-key:active{ transform:scale(0.96); }
-  .btn-key:hover{ border-color:#3a4150; }
-  .btn-key.has-signal{ border-color:rgba(91,141,239,.35); }
-  .btn-key.no-signal{ border-style:dashed; }
+    /* ==================== BULLETPROOF BUTTON & INPUT DEFAULTS ==================== */
+    /* Never white buttons or white inputs with white text! */
+    button {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-color: #162440 !important;
+      color: #f1f5f9 !important;
+      border: 1px solid #283e66 !important;
+      border-radius: 10px;
+      padding: 6px 14px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.08s ease;
+      outline: none;
+      user-select: none;
+    }
+    button:hover {
+      background-color: #203358 !important;
+      border-color: #3b5a90 !important;
+      color: #ffffff !important;
+    }
+    button:active {
+      transform: scale(0.97);
+    }
 
-  .scrollbar-thin::-webkit-scrollbar{ width:6px; height:6px; }
-  .scrollbar-thin::-webkit-scrollbar-thumb{ background:var(--border); border-radius:3px; }
+    /* Inputs, Selects & Textareas: Always dark with light readable text */
+    input, select, textarea {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background-color: #0a1120 !important;
+      color: #ffffff !important;
+      border: 1px solid #24385a !important;
+      border-radius: 10px !important;
+      padding: 8px 12px !important;
+      font-family: inherit !important;
+      font-size: 13px !important;
+      outline: none !important;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+    }
+    input::placeholder {
+      color: #586e91 !important;
+    }
 
-  .status-dot{ width:8px; height:8px; border-radius:999px; }
-  .grid-cells{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
-  #waveform{ height:32px; align-items:flex-end; overflow:hidden; }
-</style>
+    /* ==================== BUTTON STYLING VARIANTS ==================== */
+    /* Primary buttons */
+    .btn-primary, #modalSaveBtn, #newRemoteCreateBtn, #openNewRemoteModalBtn, #emptyNewRemoteBtn, .add-button-trigger {
+      background-color: #2563eb !important;
+      color: #ffffff !important;
+      border: 1px solid #3b82f6 !important;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+    }
+    .btn-primary:hover, #modalSaveBtn:hover, #newRemoteCreateBtn:hover, #openNewRemoteModalBtn:hover, #emptyNewRemoteBtn:hover, .add-button-trigger:hover {
+      background-color: #1d4ed8 !important;
+      border-color: #60a5fa !important;
+      color: #ffffff !important;
+    }
+
+    /* Secondary buttons */
+    .btn-secondary, #modalCancelBtn, #newRemoteCancelBtn, #expandAllBtn, #collapseAllBtn {
+      background-color: #131f35 !important;
+      color: #cbd5e1 !important;
+      border: 1px solid #243a5e !important;
+    }
+    .btn-secondary:hover, #modalCancelBtn:hover, #newRemoteCancelBtn:hover, #expandAllBtn:hover, #collapseAllBtn:hover {
+      background-color: #1c2d4a !important;
+      border-color: #38568a !important;
+      color: #ffffff !important;
+    }
+
+    /* Learn signal button */
+    #modalLearnBtn {
+      background-color: rgba(245, 158, 11, 0.16) !important;
+      color: #fbbf24 !important;
+      border: 1px solid rgba(245, 158, 11, 0.45) !important;
+    }
+    #modalLearnBtn:hover {
+      background-color: rgba(245, 158, 11, 0.3) !important;
+      border-color: #fbbf24 !important;
+      color: #fef3c7 !important;
+    }
+
+    /* Test / blast button */
+    #modalTestBtn {
+      background-color: rgba(59, 130, 246, 0.2) !important;
+      color: #93c5fd !important;
+      border: 1px solid rgba(59, 130, 246, 0.5) !important;
+    }
+    #modalTestBtn:hover:not(:disabled) {
+      background-color: rgba(59, 130, 246, 0.35) !important;
+      border-color: #60a5fa !important;
+      color: #ffffff !important;
+    }
+    #modalTestBtn:disabled {
+      opacity: 0.35 !important;
+      cursor: not-allowed !important;
+    }
+
+    /* Delete buttons */
+    .btn-danger, #modalDeleteBtn, .delete-place-trigger {
+      background-color: rgba(239, 68, 68, 0.14) !important;
+      color: #f87171 !important;
+      border: 1px solid rgba(239, 68, 68, 0.35) !important;
+    }
+    .btn-danger:hover, #modalDeleteBtn:hover, .delete-place-trigger:hover {
+      background-color: rgba(239, 68, 68, 0.28) !important;
+      border-color: #ef4444 !important;
+      color: #ffffff !important;
+    }
+
+    /* Modal close button */
+    #modalClose, #newRemoteModalClose {
+      background-color: transparent !important;
+      border: none !important;
+      color: #94a3b8 !important;
+      font-size: 26px !important;
+      line-height: 1 !important;
+      padding: 2px 8px !important;
+      width: auto !important;
+      border-radius: 6px;
+    }
+    #modalClose:hover, #newRemoteModalClose:hover {
+      background-color: rgba(255, 255, 255, 0.1) !important;
+      color: #ffffff !important;
+    }
+
+    /* Bottom Add Place Button */
+    #bottomAddPlaceBtn {
+      background-color: rgba(17, 28, 48, 0.65) !important;
+      color: #94a3b8 !important;
+      border: 2px dashed #243a5e !important;
+      border-radius: 16px !important;
+      padding: 16px 20px !important;
+      width: 100% !important;
+      font-size: 14px !important;
+    }
+    #bottomAddPlaceBtn:hover {
+      background-color: #162644 !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+    }
+
+    /* Quick transmit button inside key card */
+    .quick-transmit-btn {
+      background-color: rgba(59, 130, 246, 0.2) !important;
+      color: #93c5fd !important;
+      border: 1px solid rgba(59, 130, 246, 0.4) !important;
+      padding: 5px 8px !important;
+      border-radius: 8px !important;
+    }
+    .quick-transmit-btn:hover {
+      background-color: #2563eb !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+    }
+
+    .quick-edit-btn {
+      background-color: rgba(255, 255, 255, 0.08) !important;
+      color: #cbd5e1 !important;
+      border: 1px solid rgba(255, 255, 255, 0.15) !important;
+      padding: 5px 8px !important;
+      border-radius: 8px !important;
+    }
+    .quick-edit-btn:hover {
+      background-color: rgba(255, 255, 255, 0.18) !important;
+      color: #ffffff !important;
+    }
+
+    /* Preset chip buttons */
+    .preset-chip {
+      background-color: #101c33 !important;
+      color: #93c5fd !important;
+      border: 1px solid #203456 !important;
+      font-size: 11px !important;
+      padding: 4px 9px !important;
+      border-radius: 8px !important;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .preset-chip:hover {
+      background-color: #1d3358 !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+    }
+
+    /* Icon selector buttons */
+    .icon-choice-btn {
+      background-color: #0c1424 !important;
+      color: #8fa0ba !important;
+      border: 1px solid #1f3150 !important;
+      padding: 8px !important;
+      border-radius: 8px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+    .icon-choice-btn:hover {
+      background-color: #172642 !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+    }
+    .icon-choice-btn.is-active {
+      background-color: rgba(59, 130, 246, 0.25) !important;
+      border-color: #3b82f6 !important;
+      color: #93c5fd !important;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.35) !important;
+    }
+
+    /* Color picker buttons */
+    .color-choice-btn {
+      background-color: #0c1424 !important;
+      color: #cbd5e1 !important;
+      border: 1px solid #223758 !important;
+      padding: 6px 10px !important;
+      border-radius: 8px !important;
+      font-size: 11px !important;
+    }
+    .color-choice-btn:hover {
+      background-color: #172642 !important;
+      color: #ffffff !important;
+    }
+
+    /* Device type picker in new remote modal */
+    .device-type-btn {
+      background-color: #0d1628 !important;
+      color: #cbd5e1 !important;
+      border: 1px solid #203454 !important;
+      padding: 10px !important;
+      border-radius: 12px !important;
+      flex-direction: column !important;
+      gap: 6px !important;
+    }
+    .device-type-btn:hover {
+      background-color: #182744 !important;
+      color: #ffffff !important;
+      border-color: #3b5c96 !important;
+    }
+    .device-type-btn.is-active {
+      background-color: rgba(59, 130, 246, 0.25) !important;
+      border-color: #3b82f6 !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.3) !important;
+    }
+
+    /* ==================== CRITICAL LAYOUT & DISPLAY RULES ==================== */
+    .hidden { display: none !important; }
+    .flex { display: flex; }
+    .inline-flex { display: inline-flex; }
+    .grid { display: grid; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .items-start { align-items: flex-start; }
+    .items-end { align-items: flex-end; }
+    .justify-between { justify-content: space-between; }
+    .justify-center { justify-content: center; }
+    .justify-end { justify-content: flex-end; }
+    .flex-wrap { flex-wrap: wrap; }
+    .flex-1 { flex: 1 1 0%; }
+    .shrink-0 { flex-shrink: 0; }
+    .w-full { width: 100%; }
+    .h-full { height: 100%; }
+    .h-screen { height: 100vh; }
+    .min-h-screen { min-height: 100vh; }
+
+    /* Gap helpers */
+    .gap-1 { gap: 0.25rem; }
+    .gap-1\.5 { gap: 0.375rem; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-2\.5 { gap: 0.625rem; }
+    .gap-3 { gap: 0.75rem; }
+    .gap-3\.5 { gap: 0.875rem; }
+    .gap-4 { gap: 1rem; }
+
+    /* Margins & Spacers */
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .space-y-3 > * + * { margin-top: 0.75rem; }
+    .space-y-2 > * + * { margin-top: 0.5rem; }
+
+    /* Grids */
+    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+    @media (min-width: 640px) {
+      .sm\:inline-block { display: inline-block !important; }
+      .sm\:flex-row { flex-direction: row !important; }
+      .sm\:items-center { align-items: center !important; }
+      .sm\:self-center { align-self: center !important; }
+      .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .sm\:w-64 { width: 16rem !important; }
+      .sm\:px-6 { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
+      .sm\:px-8 { padding-left: 2rem !important; padding-right: 2rem !important; }
+    }
+    @media (min-width: 768px) {
+      .md\:flex { display: flex !important; }
+      .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .md\:p-8 { padding: 2rem !important; }
+    }
+    @media (min-width: 1024px) {
+      .lg\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
+
+    /* Panels & Surfaces */
+    .surface-panel {
+      background: var(--bg-header);
+      border: 1px solid var(--border);
+    }
+    .surface-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: #f8fafc;
+    }
+
+    /* ==================== COLLAPSIBLE PLACES ACCORDION ==================== */
+    .place-accordion-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      overflow: hidden;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      margin-bottom: 1rem;
+    }
+    .place-accordion-item:hover {
+      border-color: var(--border-light);
+    }
+    .place-accordion-item.is-open {
+      border-color: #3b82f6;
+      box-shadow: 0 6px 24px rgba(59, 130, 246, 0.18);
+    }
+
+    .place-accordion-header {
+      width: 100%;
+      text-align: left;
+      background: linear-gradient(180deg, #162440 0%, #111c33 100%) !important;
+      padding: 1rem 1.25rem !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      cursor: pointer !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+    }
+    .place-accordion-header:hover {
+      background: linear-gradient(180deg, #1d3054 0%, #152340 100%) !important;
+    }
+    .place-accordion-item.is-open .place-accordion-header {
+      background: linear-gradient(180deg, #1b3259 0%, #13223f 100%) !important;
+      border-bottom: 1px solid rgba(59, 130, 246, 0.35) !important;
+    }
+
+    .place-chevron {
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      color: #93c5fd;
+    }
+    .place-accordion-item.is-open .place-chevron {
+      transform: rotate(180deg);
+      color: #60a5fa;
+    }
+
+    .place-accordion-content {
+      background: #09101d;
+      padding: 1.25rem;
+      display: none;
+    }
+    .place-accordion-item.is-open .place-accordion-content {
+      display: block;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ==================== BUTTON KEY CARDS ==================== */
+    .btn-key-card {
+      background: linear-gradient(180deg, #172642 0%, #101b2f 100%) !important;
+      border: 1px solid #273d63 !important;
+      border-radius: 1rem !important;
+      padding: 1rem !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      transition: transform 0.08s ease, box-shadow 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+      position: relative;
+      user-select: none;
+      color: #ffffff !important;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 110px;
+      cursor: pointer;
+    }
+    .btn-key-card:hover {
+      background: linear-gradient(180deg, #1e3357 0%, #14223c 100%) !important;
+      border-color: #3f6099 !important;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+      transform: translateY(-2px);
+    }
+    .btn-key-card:active {
+      transform: scale(0.97) translateY(1px);
+    }
+    .btn-key-card.has-signal {
+      border-color: rgba(16, 185, 129, 0.45) !important;
+    }
+    .btn-key-card.no-signal {
+      border-style: dashed !important;
+      border-color: rgba(148, 163, 184, 0.35) !important;
+      background: rgba(18, 28, 48, 0.6) !important;
+    }
+
+    /* Color variations for buttons */
+    .btn-theme-red {
+      border-color: rgba(239, 68, 68, 0.55) !important;
+      background: linear-gradient(180deg, rgba(239, 68, 68, 0.22) 0%, rgba(26, 32, 48, 0.95) 100%) !important;
+    }
+    .btn-theme-red:hover { border-color: rgba(239, 68, 68, 0.85) !important; }
+    .btn-theme-cyan {
+      border-color: rgba(6, 182, 212, 0.55) !important;
+      background: linear-gradient(180deg, rgba(6, 182, 212, 0.22) 0%, rgba(26, 32, 48, 0.95) 100%) !important;
+    }
+    .btn-theme-cyan:hover { border-color: rgba(6, 182, 212, 0.85) !important; }
+    .btn-theme-amber {
+      border-color: rgba(245, 158, 11, 0.55) !important;
+      background: linear-gradient(180deg, rgba(245, 158, 11, 0.22) 0%, rgba(26, 32, 48, 0.95) 100%) !important;
+    }
+    .btn-theme-amber:hover { border-color: rgba(245, 158, 11, 0.85) !important; }
+    .btn-theme-green {
+      border-color: rgba(16, 185, 129, 0.55) !important;
+      background: linear-gradient(180deg, rgba(16, 185, 129, 0.22) 0%, rgba(26, 32, 48, 0.95) 100%) !important;
+    }
+    .btn-theme-green:hover { border-color: rgba(16, 185, 129, 0.85) !important; }
+    .btn-theme-blue {
+      border-color: rgba(59, 130, 246, 0.55) !important;
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.22) 0%, rgba(26, 32, 48, 0.95) 100%) !important;
+    }
+
+    /* Signal transmit animation */
+    @keyframes transmit-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.8), inset 0 0 15px rgba(59, 130, 246, 0.6); }
+      70% { box-shadow: 0 0 0 14px rgba(59, 130, 246, 0), inset 0 0 5px rgba(59, 130, 246, 0.2); }
+      100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0), inset 0 0 0 rgba(59, 130, 246, 0); }
+    }
+    .transmitting {
+      animation: transmit-pulse 0.5s ease-out;
+      border-color: var(--accent) !important;
+    }
+
+    /* Waveform visualizer */
+    .waveform-bar {
+      width: 3px;
+      background: var(--text-muted);
+      border-radius: 2px;
+      transition: height 0.1s ease, background 0.12s ease;
+      align-self: flex-end;
+    }
+    .waveform-bar.active {
+      background: var(--signal);
+      box-shadow: 0 0 6px var(--signal-glow);
+    }
+    .waveform-bar.transmitting {
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent-glow);
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.5; transform: scale(0.98); }
+      50% { opacity: 1; transform: scale(1); }
+    }
+    .learning-pulse {
+      animation: pulse-glow 1.1s ease-in-out infinite;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+    }
+
+    /* ==================== BULLETPROOF MODALS ==================== */
+    #modalBackdrop, #newRemoteModalBackdrop {
+      position: fixed !important;
+      top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+      width: 100vw !important; height: 100vh !important;
+      background: rgba(3, 6, 14, 0.82) !important;
+      backdrop-filter: blur(8px) !important;
+      z-index: 9999 !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 1rem !important;
+      overflow-y: auto !important;
+    }
+    #modalBackdrop.hidden, #newRemoteModalBackdrop.hidden {
+      display: none !important;
+    }
+
+    .modal-box {
+      background: #0f192c !important;
+      border: 2px solid #283e66 !important;
+      border-radius: 1.25rem !important;
+      width: 100% !important;
+      max-width: 28rem !important;
+      padding: 1.5rem !important;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7) !important;
+      color: #ffffff !important;
+      position: relative !important;
+    }
+
+    /* Custom scrollbars */
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #283e66; border-radius: 9999px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #3b5a92; }
+  </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen flex flex-col bg-[var(--bg)] text-[var(--text)] select-none">
 
 <div id="app" class="flex flex-col h-screen overflow-hidden">
 
-  <!-- ===== Header: signature waveform + connection status ===== -->
-  <header class="surface border-b flex items-center justify-between px-4 md:px-6 py-3 shrink-0">
+  <!-- ==================== Top Header ==================== -->
+  <header class="surface-panel border-b border-[var(--border)] px-4 sm:px-6 py-3 flex items-center justify-between shrink-0 z-20">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,var(--accent),var(--signal));">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 0116 0M7 12a5 5 0 0110 0M12 12v6" stroke="#0b0d10" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="w-9 h-9 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 shrink-0" style="background: linear-gradient(135deg, #3b82f6, #06b6d4);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#070a10" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 11a9 9 0 0 1 16 0"></path>
+          <path d="M7 14a5 5 0 0 1 10 0"></path>
+          <circle cx="12" cy="18" r="1.5"></circle>
+        </svg>
       </div>
       <div>
-        <h1 class="text-sm font-semibold tracking-wide">IR HUB</h1>
-        <p class="text-[11px] text-[var(--text-dim)] mono">universal signal control</p>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-bold tracking-wider uppercase text-white">IR HUB</h1>
+          <span class="text-[10px] mono px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">v2.1</span>
+        </div>
+        <p class="text-[11px] text-[var(--text-dim)] mono">Universal Signal Controller & Blaster</p>
       </div>
     </div>
 
-    <!-- signature: live waveform strip -->
-    <div id="waveform" class="hidden md:flex items-end gap-[3px] h-8 mx-4"></div>
+    <!-- Live IR Signal Waveform visualizer strip -->
+    <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--bg-alt)] border border-[var(--border)]">
+      <span class="text-[10px] mono text-[var(--text-muted)] tracking-wider uppercase">Signal Bus</span>
+      <div id="waveform" class="flex items-end gap-[3px] h-6 w-36"></div>
+    </div>
 
-    <div class="flex items-center gap-4">
-      <div class="flex items-center gap-2 text-xs mono">
-        <span id="mqttDot" class="status-dot" style="background:var(--danger)"></span>
-        <span id="mqttLabel" class="text-[var(--text-dim)]">mqtt offline</span>
+    <!-- Status indicator pills -->
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-[var(--bg-alt)] border border-[var(--border)] text-xs mono">
+        <span id="mqttDot" class="status-dot transition-colors duration-300" style="background:var(--danger)"></span>
+        <span id="mqttLabel" class="text-dim text-[11px] font-medium">mqtt offline</span>
       </div>
     </div>
   </header>
 
-  <div class="flex flex-1 overflow-hidden">
-
-    <!-- ===== Sidebar: remote categories ===== -->
-    <aside class="w-56 md:w-64 surface border-r flex flex-col shrink-0 hidden sm:flex">
-      <div class="p-3 flex items-center justify-between">
-        <span class="text-xs uppercase tracking-widest text-[var(--text-dim)] mono">Remotes</span>
-        <button id="newRemoteBtn" class="text-xs px-2 py-1 rounded-md surface-2 hover:border-[var(--accent)] transition" title="Add remote">+ New</button>
+  <!-- ==================== Places Section Header Toolbar ==================== -->
+  <div class="surface-panel border-b border-[var(--border)] bg-[var(--bg-alt)] px-4 sm:px-8 py-3 flex items-center justify-between shrink-0 z-10">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+          <path d="M3 9h18"></path>
+          <path d="M9 21V9"></path>
+        </svg>
+        <span class="text-sm font-bold text-white uppercase tracking-wider">Places & Remotes</span>
       </div>
-      <nav id="remoteList" class="flex-1 overflow-y-auto scrollbar-thin px-2 pb-3 space-y-1"></nav>
-    </aside>
+      <span id="placesSummaryBadge" class="text-[11px] mono px-2.5 py-0.5 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/25 font-semibold">0 places</span>
+    </div>
 
-    <!-- ===== Main: remote builder ===== -->
-    <main class="flex-1 overflow-y-auto scrollbar-thin p-4 md:p-8">
-      <div id="emptyState" class="hidden flex flex-col items-center justify-center h-full text-center text-[var(--text-dim)]">
-        <p class="mono text-sm mb-2">no remotes yet</p>
-        <p class="text-xs">create one from the sidebar to start mapping buttons</p>
-      </div>
-
-      <div id="remoteView" class="hidden max-w-3xl mx-auto">
-        <div class="flex items-center justify-between mb-6">
-          <div class="flex items-center gap-2">
-            <input id="remoteNameInput" class="bg-transparent text-xl font-semibold outline-none border-b border-transparent focus:border-[var(--accent)] px-0.5" />
-          </div>
-          <div class="flex items-center gap-2">
-            <button id="addButtonBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--accent)] transition mono">+ Add Button</button>
-            <button id="deleteRemoteBtn" class="text-xs px-3 py-1.5 rounded-md surface-2 hover:border-[var(--danger)] transition mono text-[var(--danger)]">Delete</button>
-          </div>
-        </div>
-
-        <div id="buttonGrid" class="grid-cells"></div>
-      </div>
-    </main>
+    <div class="flex items-center gap-2">
+      <button id="expandAllBtn" class="btn-secondary px-2.5 py-1 text-xs mono hidden sm:inline-block" title="Expand all places">
+        Expand All
+      </button>
+      <button id="collapseAllBtn" class="btn-secondary px-2.5 py-1 text-xs mono hidden sm:inline-block" title="Collapse all places">
+        Collapse All
+      </button>
+      <button id="openNewRemoteModalBtn" class="btn-primary px-3 py-1.5 text-xs font-semibold shrink-0 mono" title="Create a new place or remote">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>New Place</span>
+      </button>
+    </div>
   </div>
 
-  <!-- ===== Toast / learn feedback ===== -->
-  <div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 surface px-4 py-2.5 rounded-lg text-sm shadow-lg z-50"></div>
+  <!-- ==================== Main Content Area: Collapsible Places Accordion ==================== -->
+  <main class="flex-1 overflow-y-auto scrollbar-thin p-4 sm:p-6 md:p-8 bg-[var(--bg)]">
+
+    <!-- Empty state when no remotes exist -->
+    <div id="emptyState" class="hidden flex flex-col items-center justify-center h-full max-w-md mx-auto text-center py-12">
+      <div class="w-16 h-16 rounded-2xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center mb-4 text-blue-400">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="14" height="20" x="5" y="2" rx="2"></rect>
+          <circle cx="12" cy="14" r="2"></circle>
+          <line x1="12" y1="6" x2="12" y2="6.01"></line>
+        </svg>
+      </div>
+      <h2 class="text-base font-bold text-white mb-1">No Places Configured Yet</h2>
+      <p class="text-xs text-[var(--text-dim)] mb-6 max-w-xs">Create your first place (e.g. AC Remote, Living Room TV, Projector) to start mapping and blasting IR signals.</p>
+      <button id="emptyNewRemoteBtn" class="btn-primary px-4 py-2 text-xs font-semibold">
+        + Create First Place
+      </button>
+    </div>
+
+    <!-- Accordion of Collapsible Place Buttons Container -->
+    <div id="placesAccordion" class="max-w-5xl mx-auto space-y-4">
+      <!-- Collapsible Place items dynamically rendered here by renderPlacesAccordion() -->
+    </div>
+
+    <!-- Bottom Action to quickly add a new place -->
+    <div id="bottomAddPlaceWrapper" class="max-w-5xl mx-auto mt-6">
+      <button id="bottomAddPlaceBtn" title="Create another place or remote">
+        <div class="w-6 h-6 rounded-lg bg-blue-500/20 border border-blue-500/35 flex items-center justify-center text-blue-300 transition">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </div>
+        <span class="font-semibold">Add Another Place or Remote</span>
+      </button>
+    </div>
+  </main>
+
+  <!-- ==================== Floating Toast ==================== -->
+  <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 surface-card border border-[var(--border-light)] px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold shadow-2xl z-50 flex items-center gap-2.5 transition-all text-white"></div>
 </div>
 
-<!-- ===== Button edit / learn modal ===== -->
-<div id="modalBackdrop" class="hidden fixed inset-0 bg-black/60 z-40 items-center justify-center px-4">
-  <div class="surface rounded-xl w-full max-w-sm p-5">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold mono">EDIT BUTTON</h2>
-      <button id="modalClose" class="text-[var(--text-dim)] hover:text-white text-lg leading-none">&times;</button>
+<!-- ==================== Edit Button Menu Modal ==================== -->
+<div id="modalBackdrop" class="hidden">
+  <div class="modal-box">
+
+    <!-- Modal Header -->
+    <div class="flex items-start justify-between pb-4 mb-4 border-b border-[var(--border)]">
+      <div>
+        <h2 id="modalTitle" class="text-base font-bold text-white flex items-center gap-2">
+          <span>Edit Button</span>
+        </h2>
+        <p id="modalSubtitle" class="text-xs text-[var(--text-dim)] mono mt-0.5">Configure label, icon & IR signal</p>
+      </div>
+      <button id="modalClose" title="Close modal">&times;</button>
     </div>
 
-    <label class="block text-xs text-[var(--text-dim)] mb-1 mono">Label</label>
-    <input id="modalLabel" class="w-full surface-2 rounded-md px-3 py-2 text-sm mb-4 outline-none focus:border-[var(--accent)] border" />
+    <form id="buttonEditForm" onsubmit="return false;" class="space-y-4">
 
-    <div class="mb-4">
-      <label class="block text-xs text-[var(--text-dim)] mb-2 mono">Signal</label>
-      <div id="modalSignalInfo" class="text-xs mono px-3 py-2 rounded-md surface-2 border border-[var(--border)] text-[var(--text-dim)]">
-        no signal learned
+      <!-- Button Label Input -->
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Button Label</label>
+        <input id="modalLabel" type="text" placeholder="e.g. Power, Temp +, Fan" class="w-full" required />
+
+        <!-- Preset Label Chips -->
+        <div class="mt-2.5 flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10px] text-[var(--text-muted)] mono">Presets:</span>
+          <div id="presetChips" class="flex flex-wrap gap-1">
+            <!-- Chips generated dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Button Icon Selector -->
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Icon</label>
+        <div id="iconSelectorGrid" class="grid grid-cols-6 gap-2 p-2.5 bg-[#09101d] rounded-xl border border-[var(--border)] max-h-32 overflow-y-auto scrollbar-thin">
+          <!-- Icon options rendered via JS -->
+        </div>
+      </div>
+
+      <!-- Button Style / Accent Color -->
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Theme Color</label>
+        <div id="colorSelectorGrid" class="flex items-center gap-2 p-2 bg-[#09101d] rounded-xl border border-[var(--border)]">
+          <!-- Color chips rendered via JS -->
+        </div>
+      </div>
+
+      <!-- IR Signal Section -->
+      <div class="p-3.5 rounded-xl bg-[#09101d] border border-[var(--border)] space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold text-[var(--text-dim)] mono uppercase tracking-wider flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12h2"></path>
+              <path d="M20 12h2"></path>
+              <path d="m4.93 4.93 1.41 1.41"></path>
+              <path d="m17.66 17.66 1.41 1.41"></path>
+              <path d="M12 2v2"></path>
+              <path d="M12 20v2"></path>
+            </svg>
+            <span>IR Signal</span>
+          </label>
+          <span id="modalSignalBadge" class="text-[10px] mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">Unmapped</span>
+        </div>
+
+        <div id="modalSignalInfo" class="text-xs mono px-3 py-2 rounded-lg bg-[#060b14] border border-[var(--border)] text-white flex items-center justify-between">
+          <span>no signal learned</span>
+        </div>
+
+        <!-- Signal Actions: Learn Signal & Test Transmit -->
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button type="button" id="modalLearnBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="2"></circle>
+              <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path>
+            </svg>
+            <span id="learnBtnText">Learn Signal</span>
+          </button>
+
+          <button type="button" id="modalTestBtn" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span>Test / Blast</span>
+          </button>
+        </div>
+
+        <div id="clearSignalRow" class="hidden text-right">
+          <button type="button" id="modalClearSignalBtn" class="text-[11px] mono text-[var(--text-muted)] hover:text-red-400 transition underline" style="background:transparent !important; border:none !important; padding:0 !important;">
+            Clear learned signal
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Bottom Actions -->
+      <div class="pt-3 border-t border-[var(--border)] flex items-center justify-between gap-2">
+        <button type="button" id="modalDeleteBtn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>Delete</span>
+        </button>
+
+        <div class="flex items-center gap-2">
+          <button type="button" id="modalCancelBtn" class="btn-secondary">
+            Cancel
+          </button>
+          <button type="button" id="modalSaveBtn" class="btn-primary">
+            Save Button
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ==================== Create New Remote / Place Modal ==================== -->
+<div id="newRemoteModalBackdrop" class="hidden">
+  <div class="modal-box" style="max-width: 25rem !important;">
+    <div class="flex items-center justify-between pb-3 mb-4 border-b border-[var(--border)]">
+      <h2 class="text-base font-bold text-white">Create New Remote Place</h2>
+      <button id="newRemoteModalClose" title="Close modal">&times;</button>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Place / Remote Name</label>
+        <input id="newRemoteNameInput" type="text" placeholder="e.g. AC Remote, Living Room TV" class="w-full" />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Device Type / Icon</label>
+        <div id="newRemoteTypeSelector" class="grid grid-cols-4 gap-2">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-[var(--text-dim)] mb-1.5 mono uppercase tracking-wider">Preset Buttons Template</label>
+        <select id="newRemoteTemplateSelect" class="w-full">
+          <option value="ac" selected>AC Remote (Power, Temp +, Temp -, Fan, Mode, Swing)</option>
+          <option value="tv">TV Remote (Power, Vol +, Vol -, Mute, Ch +, Ch -, Input)</option>
+          <option value="empty">Empty (Blank remote)</option>
+        </select>
+      </div>
+
+      <div class="pt-3 border-t border-[var(--border)] flex items-center justify-end gap-2">
+        <button id="newRemoteCancelBtn" class="btn-secondary">Cancel</button>
+        <button id="newRemoteCreateBtn" class="btn-primary">Create Place</button>
       </div>
     </div>
-
-    <button id="modalLearnBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--signal); color:#0b0d10;">
-      Learn Signal
-    </button>
-    <button id="modalSaveBtn" class="w-full py-2.5 rounded-md text-sm font-medium mb-2 transition" style="background:var(--accent); color:#0b0d10;">
-      Save
-    </button>
-    <button id="modalDeleteBtn" class="w-full py-2 rounded-md text-xs mono transition" style="color:var(--danger);">
-      Delete button
-    </button>
   </div>
 </div>
 
 <script>
-  window.IRHUB_API_BASE = 'http://localhost:3000';
-  window.IRHUB_WS_URL = 'ws://localhost:3000/ws';
+  window.IRHUB_API_BASE = window.IRHUB_API_BASE || (location.port === '3000' ? '' : 'http://localhost:3000');
+  window.IRHUB_WS_URL = window.IRHUB_WS_URL || (location.port === '3000' ? ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws') : 'ws://localhost:3000/ws');
 </script>
 <script src="app.js"></script>
 </body>
