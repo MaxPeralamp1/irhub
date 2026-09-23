@@ -1,0 +1,67 @@
+{
+  "remotes": [
+    {
+      "id": "ac-remote",
+      "name": "AC Remote",
+      "icon": "ac",
+      "buttons": [
+        {
+          "id": "btn-n9w4lg6c",
+          "label": "Power",
+          "row": 0,
+          "col": 0,
+          "icon": "power",
+          "color": "red",
+          "signal": null
+        },
+        {
+          "id": "btn-jdnaobai",
+          "label": "Temp +",
+          "row": 0,
+          "col": 1,
+          "icon": "thermometer",
+          "color": "cyan",
+          "signal": null
+        },
+        {
+          "id": "btn-rsiyyte8",
+          "label": "Temp -",
+          "row": 0,
+          "col": 2,
+          "icon": "thermometer",
+          "color": "cyan",
+          "signal": null
+        },
+        {
+          "id": "btn-p4vifx3c",
+          "label": "Fan Speed",
+          "row": 1,
+          "col": 0,
+          "icon": "fan",
+          "color": null,
+          "signal": null
+        },
+        {
+          "id": "btn-7dfmwpq8",
+          "label": "Mode",
+          "row": 1,
+          "col": 1,
+          "icon": "refresh",
+          "color": null,
+          "signal": null
+        },
+        {
+          "id": "btn-7u072jsp",
+          "label": "Swing",
+          "row": 1,
+          "col": 2,
+          "icon": "wind",
+          "color": null,
+          "signal": null
+        }
+      ]
+    }
+  ],
+  "routines": [],
+  "priceRules": []
+}
