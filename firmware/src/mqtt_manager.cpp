@@ -22,6 +22,12 @@ static char s_rx_topic[64];
 static char s_rx_payload[MQTT_MAX_PAYLOAD_LEN];
 static size_t s_rx_payload_len = 0;
 
+//IrMessage is ~1.6KB at IR_MAX_PULSES=800, far too much to put on the lwIP
+//callback stack (CYW43_TASK_STACK_SIZE is 4KB) or to duplicate on this
+//task's stack, so both directions use static storage.
+static IrMessage s_rx_msg;
+static IrMessage s_learned;
+
 //MQTT incoming publish handlers
 
 static void mqtt_incoming_publish_cb(void *arg, const char *topic, u32_t tot_len) {
@@ -43,11 +49,16 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
         s_rx_payload[s_rx_payload_len] = '\0';
 
         if (strcmp(s_rx_topic, MQTT_TOPIC_SEND) == 0) {
-            IrMessage msg{};
-            if (json_helper::decode_ir_message(s_rx_payload, s_rx_payload_len, msg)) {
-                xQueueSend(g_mqttToTransmitQueue, &msg, pdMS_TO_TICKS(50));
-            } else {
+            if (!json_helper::decode_ir_message(s_rx_payload, s_rx_payload_len, s_rx_msg)) {
                 printf("[mqtt] failed to decode irhub/send payload\n");
+            } else if (s_rx_msg.truncated) {
+                //More pulses than IR_MAX_PULSES. Transmitting the first 800
+                //would be a different command from the one asked for, so
+                //refuse rather than blast a partial frame.
+                printf("[mqtt] REFUSING irhub/send: payload exceeds %u pulses\n",
+                       (unsigned)IR_MAX_PULSES);
+            } else {
+                xQueueSend(g_mqttToTransmitQueue, &s_rx_msg, pdMS_TO_TICKS(50));
             }
         }
     }
@@ -131,7 +142,8 @@ static void publish_learned_signal(const IrMessage &msg) {
     static char payload[MQTT_MAX_PAYLOAD_LEN];
     size_t len = json_helper::encode_ir_message(msg, payload, sizeof(payload));
     if (len == 0) {
-        printf("[mqtt] encode failed, payload too large (%u pulses)\n", msg.pulse_count);
+        printf("[mqtt] encode failed: %u pulses will not fit in %u bytes\n",
+               (unsigned)msg.pulse_count, (unsigned)sizeof(payload));
         return;
     }
 
@@ -145,7 +157,10 @@ static void publish_learned_signal(const IrMessage &msg) {
         if (err != ERR_OK) {
             printf("[mqtt] publish irhub/learned failed: %d\n", (int)err);
         } else {
-            printf("[mqtt] published learned signal (%u pulses)\n", msg.pulse_count);
+            printf("[mqtt] published learned signal (%u pulses, %u frame(s)%s)\n",
+                   (unsigned)msg.pulse_count,
+                   (unsigned)msg.frame_count,
+                   msg.truncated ? ", TRUNCATED" : "");
         }
     }
 }
@@ -186,9 +201,8 @@ void task(void *params) {
 
         //Steady-state loop: bridge capture queue -> publish, monitor link
         while (s_mqtt_up) {
-            IrMessage learned;
-            if (xQueueReceive(g_captureToMqttQueue, &learned, pdMS_TO_TICKS(200)) == pdTRUE) {
-                publish_learned_signal(learned);
+            if (xQueueReceive(g_captureToMqttQueue, &s_learned, pdMS_TO_TICKS(200)) == pdTRUE) {
+                publish_learned_signal(s_learned);
             }
 
             cyw43_arch_lwip_begin();

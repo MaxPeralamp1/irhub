@@ -125,6 +125,9 @@ function fireButton(remoteId, buttonId) {
 
     if (!button) return reject(new Error(`button ${remoteId}/${buttonId} not found`));
     if (!button.signal) return reject(new Error(`button ${remoteId}/${buttonId} has no learned signal`));
+    if (button.signal.truncated) {
+      return reject(new Error(`button ${remoteId}/${buttonId} has a truncated signal — re-learn it`));
+    }
 
     const payload = JSON.stringify({
       carrier_freq: button.signal.carrier_freq,
@@ -226,7 +229,12 @@ mqttClient.on('message', (topic, payloadBuf) => {
       return;
     }
 
-    console.log(`[mqtt] learned signal: ${signal.pulses?.length ?? 0} pulses @ ${signal.carrier_freq}Hz`);
+    const frames = signal.frame_count ?? 1;
+    console.log(
+      `[mqtt] learned signal: ${signal.pulses?.length ?? 0} pulses @ ${signal.carrier_freq}Hz` +
+      (frames > 1 ? `, ${frames} frames` : '') +
+      (signal.truncated ? ' — TRUNCATED, signal is incomplete' : '')
+    );
 
     if (learnSession) {
       const { remoteId, buttonId } = learnSession;
@@ -334,6 +342,12 @@ app.post('/api/send', (req, res) => {
 
   if (!button) return res.status(404).json({ error: 'button not found' });
   if (!button.signal) return res.status(409).json({ error: 'button has no learned signal yet' });
+  // A clipped capture cannot reproduce the original command, and the hub
+  // refuses over-length payloads anyway. Fail loudly rather than blast a
+  // partial frame and leave the user wondering why nothing happened.
+  if (button.signal.truncated) {
+    return res.status(409).json({ error: 'learned signal was truncated — re-learn this button' });
+  }
 
   const payload = JSON.stringify({
     carrier_freq: button.signal.carrier_freq,

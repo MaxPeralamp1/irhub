@@ -476,14 +476,32 @@ function closeModal() {
 }
 
 function updateModalSignalInfo(signal) {
-  if (signal) {
-    els.modalSignalInfo.textContent = `${signal.pulses.length} pulses @ ${signal.carrier_freq} Hz`;
-    els.modalSignalInfo.classList.remove('text-[var(--text-dim)]');
-    els.modalSignalInfo.classList.add('text-[var(--ok)]');
-  } else {
+  els.modalSignalInfo.classList.remove(
+    'text-[var(--text-dim)]', 'text-[var(--ok)]', 'text-[var(--danger)]', 'text-[var(--signal)]');
+
+  if (!signal) {
     els.modalSignalInfo.textContent = 'no signal learned';
     els.modalSignalInfo.classList.add('text-[var(--text-dim)]');
-    els.modalSignalInfo.classList.remove('text-[var(--ok)]');
+    return;
+  }
+
+  const base = `${signal.pulses.length} pulses @ ${signal.carrier_freq} Hz`;
+  const frames = signal.frame_count ?? 1;
+
+  if (signal.truncated) {
+    //The hub ran out of buffer: this capture cannot reproduce the command.
+    els.modalSignalInfo.innerHTML = `${escapeHtml(base)}<br>` +
+      '<span class="text-[10px]">clipped by the hub &mdash; re-learn this button</span>';
+    els.modalSignalInfo.classList.add('text-[var(--danger)]');
+  } else if (frames > 1) {
+    //Normal for an A/C, which sends its state as two halves. On a TV button
+    //it usually means the key was held down during learning.
+    els.modalSignalInfo.innerHTML = `${escapeHtml(base)}<br>` +
+      `<span class="text-[10px]">${frames} frames &mdash; normal for A/C, otherwise you may have held the key</span>`;
+    els.modalSignalInfo.classList.add('text-[var(--signal)]');
+  } else {
+    els.modalSignalInfo.textContent = base;
+    els.modalSignalInfo.classList.add('text-[var(--ok)]');
   }
 }
 
@@ -898,7 +916,14 @@ function onLearnResult(payload) {
     button.signal = payload.signal;
     updateModalSignalInfo(button.signal);
     renderAll();
-    toast(`Learned "${button.label}" (${payload.signal.pulses.length} pulses)`, 'ok');
+
+    if (payload.signal.truncated) {
+      toast(`"${button.label}" was clipped at ${payload.signal.pulses.length} pulses — re-learn it`, 'error');
+    } else if ((payload.signal.frame_count ?? 1) > 1) {
+      toast(`Learned "${button.label}" (${payload.signal.pulses.length} pulses, ${payload.signal.frame_count} frames)`, 'ok');
+    } else {
+      toast(`Learned "${button.label}" (${payload.signal.pulses.length} pulses)`, 'ok');
+    }
   }
 }
 

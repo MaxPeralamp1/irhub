@@ -37,7 +37,13 @@ void vAssertCalled(const char *file, int line);
 
 #define configSUPPORT_STATIC_ALLOCATION         0
 #define configSUPPORT_DYNAMIC_ALLOCATION        1
-#define configTOTAL_HEAP_SIZE                   (128 * 1024)
+//The heap is a static array in .bss, so every unused byte here is SRAM the
+//rest of the firmware cannot have. Measured demand is roughly 46KB (task
+//stacks + the two IrMessage queues + the cyw43 and lwIP threads); 96KB leaves
+//about 50KB spare. Raising IR_MAX_PULSES pushed .bss to within 12KB of the
+//RP2040's 264KB, which is why this came down from 128KB.
+//main() prints xPortGetFreeHeapSize() at boot - check it after any change.
+#define configTOTAL_HEAP_SIZE                   (96 * 1024)
 #define configAPPLICATION_ALLOCATED_HEAP         0
 
 #define configUSE_IDLE_HOOK                     0

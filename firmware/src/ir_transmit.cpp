@@ -47,7 +47,9 @@ static inline void carrier_off() {
 
 void task(void *params) {
     (void)params;
-    IrMessage msg;
+    //Static rather than on the task stack: IrMessage is ~1.6KB at
+    //IR_MAX_PULSES=800, and only this task ever touches it.
+    static IrMessage msg;
 
     for (;;) {
         if (xQueueReceive(g_mqttToTransmitQueue, &msg, portMAX_DELAY) == pdTRUE) {

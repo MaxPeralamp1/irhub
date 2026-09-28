@@ -8,8 +8,10 @@ namespace json_helper {
 size_t encode_ir_message(const IrMessage &msg, char *out, size_t out_len) {
     size_t pos = 0;
     int n = snprintf(out + pos, out_len - pos,
-                      "{\"carrier_freq\":%lu,\"pulses\":[",
-                      (unsigned long)msg.carrier_freq);
+                      "{\"carrier_freq\":%lu,\"frame_count\":%u,\"truncated\":%s,\"pulses\":[",
+                      (unsigned long)msg.carrier_freq,
+                      (unsigned)msg.frame_count,
+                      msg.truncated ? "true" : "false");
     if (n < 0 || (size_t)n >= out_len - pos) return 0;
     pos += n;
 
@@ -28,9 +30,17 @@ size_t encode_ir_message(const IrMessage &msg, char *out, size_t out_len) {
 }
 
 //Very small hand-rolled parser for the fixed schema. Tolerant of whitespace
+//and of unknown keys, so a payload carrying frame_count/truncated parses
+//fine even though the transmit path has no use for them.
 bool decode_ir_message(const char *json, size_t json_len, IrMessage &msg) {
     msg.carrier_freq = IR_CARRIER_HZ;
     msg.pulse_count = 0;
+    //Defaults for the inbound direction: /api/send sends only carrier_freq and
+    //pulses, and neither field means anything when transmitting. They are
+    //initialised regardless so the struct never carries stack garbage onto
+    //the transmit queue.
+    msg.frame_count = 1;
+    msg.truncated = false;
 
     const char *cf = strstr(json, "\"carrier_freq\"");
     if (cf) {
@@ -60,6 +70,16 @@ bool decode_ir_message(const char *json, size_t json_len, IrMessage &msg) {
     }
 
     msg.pulse_count = count;
+
+    //If the sender had more pulses than we can hold, say so rather than
+    //transmitting a half command.
+    if (count >= IR_MAX_PULSES) {
+        while (p < end && *p != ']') {
+            if (*p >= '0' && *p <= '9') { msg.truncated = true; break; }
+            p++;
+        }
+    }
+
     return count > 0;
 }
 

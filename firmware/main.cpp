@@ -75,6 +75,14 @@ int main() {
     xTaskCreate(transmit_task_trampoline, "IRTransmitTask", TASK_STACK_TRANSMIT,
                 nullptr, TASK_PRIO_TRANSMIT, &s_transmitTaskHandle);
 
+    //The cyw43 and lwIP threads allocate later, so this is an upper bound on
+    //what is left rather than the steady-state figure. If it ever approaches
+    //zero, lower IR_MAX_PULSES or raise configTOTAL_HEAP_SIZE.
+    printf("[mem] FreeRTOS heap free before scheduler start: %u bytes\n",
+           (unsigned)xPortGetFreeHeapSize());
+    printf("[mem] sizeof(IrMessage) = %u bytes (IR_MAX_PULSES=%d)\n",
+           (unsigned)sizeof(IrMessage), IR_MAX_PULSES);
+
     vTaskStartScheduler();
 
     // Should never reach here.
