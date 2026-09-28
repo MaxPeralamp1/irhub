@@ -1,1 +1,5 @@
 firmware/build/
+backend/node_modules/
+backend/db.json
+firmware/test/test_capture
+.idea/
