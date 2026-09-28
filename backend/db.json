@@ -63,5 +63,19 @@
     }
   ],
   "routines": [],
-  "priceRules": []
+  "priceRules": [
+    {
+      "id": "rule-5b06db90",
+      "name": "caca",
+      "enabled": true,
+      "condition": "below",
+      "thresholdCents": 1,
+      "action": {
+        "type": "button",
+        "remoteId": "ac-remote",
+        "buttonId": "btn-n9w4lg6c"
+      },
+      "lastTriggeredState": false
+    }
+  ]
 }
