@@ -1,37 +1,79 @@
 'use strict';
 
-const API_BASE = window.IRHUB_API_BASE || '';
+const API_BASE = window.IRHUB_API_BASE || (location.port === '3000' ? '' : 'http://localhost:3000');
 const WS_URL = (window.IRHUB_WS_URL) ||
-  ((location.protocol === 'https:' ? 'wss://' : 'ws://') + (location.host || 'localhost:3000') + '/ws');
+  (location.port === '3000'
+    ? ((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws')
+    : 'ws://localhost:3000/ws');
 
-// State
+// ==================== APPLICATION STATE ====================
 const state = {
+  view: 'places', // 'places' | 'routines' | 'rules'
   remotes: [],
   expandedPlaceIds: new Set(),
+  routines: [],
+  rules: [],
+  routineDraftSteps: [],
+
+  // Button Modal Context
   modalCtx: null, // { remoteId, button, isNew }
   learning: false,
   learnTimer: null,
   learnCountdown: 15,
   selectedIcon: null,
   selectedColor: null,
+
+  // New Remote Modal Context
   selectedNewRemoteType: 'ac',
+
+  // Automation Editing Context
+  editingRoutineId: null,
+  editingRuleId: null,
 };
 
-// DOM Elements
+// ==================== DOM ELEMENTS ====================
 const els = {
-  placesAccordion: document.getElementById('placesAccordion'),
-  placesSummaryBadge: document.getElementById('placesSummaryBadge'),
-  expandAllBtn: document.getElementById('expandAllBtn'),
-  collapseAllBtn: document.getElementById('collapseAllBtn'),
-  openNewRemoteModalBtn: document.getElementById('openNewRemoteModalBtn'),
-  emptyNewRemoteBtn: document.getElementById('emptyNewRemoteBtn'),
-  bottomAddPlaceBtn: document.getElementById('bottomAddPlaceBtn'),
-  bottomAddPlaceWrapper: document.getElementById('bottomAddPlaceWrapper'),
-  emptyState: document.getElementById('emptyState'),
+  // Navigation & Toolbars
+  navPlacesBtn: document.getElementById('navPlacesBtn'),
+  navRoutinesBtn: document.getElementById('navRoutinesBtn'),
+  navRulesBtn: document.getElementById('navRulesBtn'),
+  navPlacesBadge: document.getElementById('navPlacesBadge'),
+  navRoutinesBadge: document.getElementById('navRoutinesBadge'),
+  navRulesBadge: document.getElementById('navRulesBadge'),
+
+  placesToolbarActions: document.getElementById('placesToolbarActions'),
+  routinesToolbarActions: document.getElementById('routinesToolbarActions'),
+  rulesToolbarActions: document.getElementById('rulesToolbarActions'),
+
+  placesViewContainer: document.getElementById('placesViewContainer'),
+  routinesViewContainer: document.getElementById('routinesViewContainer'),
+  rulesViewContainer: document.getElementById('rulesViewContainer'),
+
+  // Header & Status
   mqttDot: document.getElementById('mqttDot'),
   mqttLabel: document.getElementById('mqttLabel'),
   toast: document.getElementById('toast'),
   waveform: document.getElementById('waveform'),
+
+  // Places Accordion View
+  placesAccordion: document.getElementById('placesAccordion'),
+  emptyState: document.getElementById('emptyState'),
+  emptyNewRemoteBtn: document.getElementById('emptyNewRemoteBtn'),
+  expandAllBtn: document.getElementById('expandAllBtn'),
+  collapseAllBtn: document.getElementById('collapseAllBtn'),
+  openNewRemoteModalBtn: document.getElementById('openNewRemoteModalBtn'),
+  bottomAddPlaceBtn: document.getElementById('bottomAddPlaceBtn'),
+  bottomAddPlaceWrapper: document.getElementById('bottomAddPlaceWrapper'),
+
+  // Routines View
+  routinesList: document.getElementById('routinesList'),
+  newRoutineBtn: document.getElementById('newRoutineBtn'),
+
+  // Price Rules View
+  rulesList: document.getElementById('rulesList'),
+  newRuleBtn: document.getElementById('newRuleBtn'),
+  currentPriceValue: document.getElementById('currentPriceValue'),
+  currentPriceUpdated: document.getElementById('currentPriceUpdated'),
 
   // Edit Button Modal
   modalBackdrop: document.getElementById('modalBackdrop'),
@@ -53,7 +95,7 @@ const els = {
   modalSaveBtn: document.getElementById('modalSaveBtn'),
   modalDeleteBtn: document.getElementById('modalDeleteBtn'),
 
-  // New Remote Modal
+  // New Remote Place Modal
   newRemoteModalBackdrop: document.getElementById('newRemoteModalBackdrop'),
   newRemoteModalClose: document.getElementById('newRemoteModalClose'),
   newRemoteCancelBtn: document.getElementById('newRemoteCancelBtn'),
@@ -61,9 +103,41 @@ const els = {
   newRemoteNameInput: document.getElementById('newRemoteNameInput'),
   newRemoteTypeSelector: document.getElementById('newRemoteTypeSelector'),
   newRemoteTemplateSelect: document.getElementById('newRemoteTemplateSelect'),
+
+  // Routine Modal
+  routineModalBackdrop: document.getElementById('routineModalBackdrop'),
+  routineModalClose: document.getElementById('routineModalClose'),
+  routineCancelBtn: document.getElementById('routineCancelBtn'),
+  routineSaveBtn: document.getElementById('routineSaveBtn'),
+  routineDeleteBtn: document.getElementById('routineDeleteBtn'),
+  routineModalTitle: document.getElementById('routineModalTitle'),
+  routineNameInput: document.getElementById('routineNameInput'),
+  routineStepsList: document.getElementById('routineStepsList'),
+  routineStepRemote: document.getElementById('routineStepRemote'),
+  routineStepButton: document.getElementById('routineStepButton'),
+  routineStepDelay: document.getElementById('routineStepDelay'),
+  routineAddStepBtn: document.getElementById('routineAddStepBtn'),
+
+  // Price Rule Modal
+  ruleModalBackdrop: document.getElementById('ruleModalBackdrop'),
+  ruleModalClose: document.getElementById('ruleModalClose'),
+  ruleCancelBtn: document.getElementById('ruleCancelBtn'),
+  ruleSaveBtn: document.getElementById('ruleSaveBtn'),
+  ruleDeleteBtn: document.getElementById('ruleDeleteBtn'),
+  ruleModalTitle: document.getElementById('ruleModalTitle'),
+  ruleNameInput: document.getElementById('ruleNameInput'),
+  ruleConditionSelect: document.getElementById('ruleConditionSelect'),
+  ruleThresholdInput: document.getElementById('ruleThresholdInput'),
+  ruleActionType: document.getElementById('ruleActionType'),
+  ruleButtonTargetRow: document.getElementById('ruleButtonTargetRow'),
+  ruleRoutineTargetRow: document.getElementById('ruleRoutineTargetRow'),
+  ruleTargetRemote: document.getElementById('ruleTargetRemote'),
+  ruleTargetButton: document.getElementById('ruleTargetButton'),
+  ruleTargetRoutine: document.getElementById('ruleTargetRoutine'),
+  ruleEnabledCheckbox: document.getElementById('ruleEnabledCheckbox'),
 };
 
-// SVG Icon Library
+// ==================== SVG ICON LIBRARY ====================
 const ICONS = {
   ac: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20"></path><path d="M12 2v20"></path><path d="m20 16-4-4 4-4"></path><path d="m4 8 4 4-4 4"></path><path d="m16 4-4 4-4-4"></path><path d="m8 20 4-4 4 4"></path></svg>`,
   tv: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>`,
@@ -96,7 +170,7 @@ const ICONS = {
   refresh: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>`,
 };
 
-// Auto-detect icon for remote or button based on name/label
+// Auto-detect icon based on name/label
 function detectIcon(typeOrLabel, isRemote = false) {
   const s = String(typeOrLabel || '').toLowerCase();
   if (isRemote) {
@@ -142,7 +216,7 @@ const COLOR_OPTIONS = [
   { id: 'blue', label: 'Accent Blue', bg: '#3b82f6', border: '#60a5fa' },
 ];
 
-// API helpers
+// ==================== API CLIENT HELPERS ====================
 async function api(path, opts = {}) {
   const res = await fetch(API_BASE + path, {
     headers: { 'Content-Type': 'application/json' },
@@ -155,6 +229,7 @@ async function api(path, opts = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// Remotes API
 const getRemotes = () => api('/api/remotes');
 const saveRemote = (remote) => api('/api/remotes', { method: 'POST', body: JSON.stringify(remote) });
 const deleteRemote = (id) => api(`/api/remotes/${id}`, { method: 'DELETE' });
@@ -164,7 +239,21 @@ const armLearn = (remoteId, buttonId) =>
   api('/api/learn', { method: 'POST', body: JSON.stringify({ remoteId, buttonId }) });
 const cancelLearn = () => api('/api/learn', { method: 'DELETE' });
 
-// Toast Notification
+// Routines API
+const getRoutines = () => api('/api/routines');
+const saveRoutine = (routine) => api('/api/routines', { method: 'POST', body: JSON.stringify(routine) });
+const deleteRoutine = (id) => api(`/api/routines/${id}`, { method: 'DELETE' });
+const runRoutine = (id) => api(`/api/routines/${id}/run`, { method: 'POST' });
+
+// Price Rules API & Spot Price API
+const getRules = () => api('/api/rules');
+const saveRule = (rule) => api('/api/rules', { method: 'POST', body: JSON.stringify(rule) });
+const deleteRule = (id) => api(`/api/rules/${id}`, { method: 'DELETE' });
+const getCurrentPrice = () => api('/api/price/current');
+
+const PRICE_POLL_MS = 60 * 1000;
+
+// ==================== UTILITIES ====================
 let toastTimer = null;
 function toast(msg, kind = 'info') {
   els.toast.innerHTML = `
@@ -176,7 +265,6 @@ function toast(msg, kind = 'info') {
   toastTimer = setTimeout(() => els.toast.classList.add('hidden'), 3500);
 }
 
-// Waveform Signature Visualizer
 const WAVEFORM_BARS = 28;
 function buildWaveform() {
   els.waveform.innerHTML = '';
@@ -222,32 +310,68 @@ function setWaveformLearning(on) {
   }
 }
 
-// Escape HTML
 function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Unique ID Generator
 function genId(prefix = 'btn') {
   return prefix + '-' + Math.random().toString(36).substring(2, 10);
 }
 
-// ==================== COLLAPSIBLE PLACES ACCORDION RENDERING ====================
+// ==================== VIEW SWITCHER ====================
+function showView(view) {
+  state.view = view;
 
+  // Toggle containers
+  els.placesViewContainer.classList.toggle('hidden', view !== 'places');
+  els.routinesViewContainer.classList.toggle('hidden', view !== 'routines');
+  els.rulesViewContainer.classList.toggle('hidden', view !== 'rules');
+
+  // Toggle top toolbar action buttons
+  els.placesToolbarActions.classList.toggle('hidden', view !== 'places');
+  els.routinesToolbarActions.classList.toggle('hidden', view !== 'routines');
+  els.rulesToolbarActions.classList.toggle('hidden', view !== 'rules');
+
+  // Update nav tabs active state
+  els.navPlacesBtn.classList.toggle('is-active', view === 'places');
+  els.navRoutinesBtn.classList.toggle('is-active', view === 'routines');
+  els.navRulesBtn.classList.toggle('is-active', view === 'rules');
+
+  // Update badge counts
+  updateNavBadges();
+
+  if (view === 'places') renderPlacesAccordion();
+  if (view === 'routines') renderRoutinesList();
+  if (view === 'rules') {
+    renderRulesList();
+    refreshCurrentPrice();
+  }
+}
+
+function updateNavBadges() {
+  els.navPlacesBadge.textContent = state.remotes.length;
+  els.navRoutinesBadge.textContent = state.routines.length;
+  els.navRulesBadge.textContent = state.rules.length;
+}
+
+els.navPlacesBtn.onclick = () => showView('places');
+els.navRoutinesBtn.onclick = () => showView('routines');
+els.navRulesBtn.onclick = () => showView('rules');
+
+// ==================== PLACES & REMOTES ACCORDION VIEW ====================
 function renderPlacesAccordion() {
+  updateNavBadges();
+
   if (state.remotes.length === 0) {
     els.emptyState.classList.remove('hidden');
     els.placesAccordion.classList.add('hidden');
     els.bottomAddPlaceWrapper.classList.add('hidden');
-    els.placesSummaryBadge.textContent = '0 places';
     return;
   }
 
   els.emptyState.classList.add('hidden');
   els.placesAccordion.classList.remove('hidden');
   els.bottomAddPlaceWrapper.classList.remove('hidden');
-  els.placesSummaryBadge.textContent = `${state.remotes.length} place${state.remotes.length === 1 ? '' : 's'}`;
-
   els.placesAccordion.innerHTML = '';
 
   state.remotes.forEach((remote) => {
@@ -262,7 +386,7 @@ function renderPlacesAccordion() {
     placeItem.className = `place-accordion-item ${isOpen ? 'is-open' : ''}`;
     placeItem.id = `place-item-${remote.id}`;
 
-    // Header Button (The collapsed place button)
+    // Header Button (Collapsed Accordion Header)
     const headerBtn = document.createElement('button');
     headerBtn.className = 'place-accordion-header';
     headerBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
@@ -302,7 +426,7 @@ function renderPlacesAccordion() {
       </div>
     `;
 
-    // Toggle expand/collapse on clicking the header button
+    // Toggle expand/collapse
     headerBtn.onclick = () => {
       if (state.expandedPlaceIds.has(remote.id)) {
         state.expandedPlaceIds.delete(remote.id);
@@ -314,26 +438,26 @@ function renderPlacesAccordion() {
 
     placeItem.appendChild(headerBtn);
 
-    // Expanded Content Panel (Shows remote toolbar + grid of buttons)
+    // Expanded Content Panel
     const contentDiv = document.createElement('div');
     contentDiv.className = 'place-accordion-content space-y-4';
 
-    // Remote Toolbar inside the place
+    // Toolbar inside the place
     const toolbar = document.createElement('div');
     toolbar.className = 'flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800';
     toolbar.innerHTML = `
       <div class="flex items-center gap-2">
         <span class="text-xs text-[var(--text-muted)] mono uppercase tracking-wider">Place Name:</span>
-        <input class="remote-rename-input bg-slate-900/90 border border-slate-700 focus:border-blue-500 text-white text-sm font-semibold px-2.5 py-1 rounded-lg outline-none transition w-48 sm:w-64" value="${escapeHtml(remote.name)}" title="Edit place name" />
+        <input class="remote-rename-input w-48 sm:w-64" value="${escapeHtml(remote.name)}" title="Edit place name" />
       </div>
 
       <div class="flex items-center gap-2 self-end sm:self-center">
-        <button class="add-button-trigger flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-600/30 transition">
+        <button class="add-button-trigger btn-primary text-xs font-bold">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
           <span>+ Add Button</span>
         </button>
 
-        <button class="delete-place-trigger px-2.5 py-1.5 rounded-xl text-xs font-semibold surface-card hover:bg-red-500/15 hover:border-red-500/40 text-red-400 transition" title="Delete this entire place">
+        <button class="delete-place-trigger btn-danger px-2.5 py-1.5 text-xs" title="Delete this entire place">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
         </button>
       </div>
@@ -407,10 +531,10 @@ function renderPlacesAccordion() {
 
           ${
             hasSignal
-              ? `<button class="quick-transmit-btn p-1.5 rounded-lg bg-white/10 hover:bg-blue-600/40 text-blue-300 hover:text-white transition" title="Quick Transmit IR signal">
+              ? `<button class="quick-transmit-btn" title="Quick Transmit IR signal">
                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                  </button>`
-              : `<button class="quick-edit-btn p-1.5 rounded-lg bg-white/10 text-slate-300 hover:text-white transition" title="Click to map signal">
+              : `<button class="quick-edit-btn" title="Click to map signal">
                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                  </button>`
           }
@@ -490,7 +614,6 @@ async function handleQuickTransmit(remote, btn, cardEl) {
 }
 
 // ==================== EDIT BUTTON MENU WORKFLOW ====================
-
 function openEditModal(remote, btn, isNew = false) {
   state.modalCtx = {
     remoteId: remote.id,
@@ -507,22 +630,13 @@ function openEditModal(remote, btn, isNew = false) {
   els.modalSubtitle.textContent = `in ${remote.name}`;
   els.modalLabel.value = btn.label || '';
 
-  // Render Preset Chips tailored to remote type
   renderPresetChips(remote);
-
-  // Render Icon Selector Grid
   renderIconSelector();
-
-  // Render Color Selector Grid
   renderColorSelector();
-
-  // Update IR Signal Status Panel
   updateModalSignalDisplay(btn.signal);
 
-  // Delete button visibility
   els.modalDeleteBtn.classList.toggle('hidden', isNew);
 
-  // Open modal
   els.modalBackdrop.classList.remove('hidden');
   els.modalBackdrop.classList.add('flex');
   setTimeout(() => els.modalLabel.focus(), 100);
@@ -548,7 +662,6 @@ function closeModal() {
   state.modalCtx = null;
 }
 
-// Preset chips
 function renderPresetChips(remote) {
   const isAc = (remote.name || '').toLowerCase().includes('ac') || (remote.name || '').toLowerCase().includes('air');
   const acPresets = ['Power', 'Temp +', 'Temp -', 'Fan Speed', 'Mode', 'Swing', 'Turbo', 'Sleep', 'Eco'];
@@ -580,11 +693,9 @@ function renderPresetChips(remote) {
   });
 }
 
-// Icon Selector
 function renderIconSelector() {
   els.iconSelectorGrid.innerHTML = '';
 
-  // "None" option
   const noneBtn = document.createElement('button');
   noneBtn.type = 'button';
   noneBtn.className = `icon-choice-btn text-xs mono ${state.selectedIcon === null ? 'is-active' : ''}`;
@@ -617,7 +728,6 @@ function renderIconSelector() {
   });
 }
 
-// Color Selector
 function renderColorSelector() {
   els.colorSelectorGrid.innerHTML = '';
   COLOR_OPTIONS.forEach((opt) => {
@@ -641,7 +751,6 @@ function renderColorSelector() {
   });
 }
 
-// Modal Signal Display
 function updateModalSignalDisplay(signal) {
   if (signal) {
     els.modalSignalBadge.textContent = 'Learned';
@@ -657,7 +766,7 @@ function updateModalSignalDisplay(signal) {
     els.clearSignalRow.classList.remove('hidden');
   } else {
     els.modalSignalBadge.textContent = 'Unmapped';
-    els.modalSignalBadge.className = 'text-[10px] mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold';
+    els.modalSignalBadge.className = 'text-[10px] mono px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold';
     els.modalSignalInfo.innerHTML = `
       <span class="text-slate-400 font-medium">No IR signal learned yet</span>
     `;
@@ -666,14 +775,12 @@ function updateModalSignalDisplay(signal) {
   }
 }
 
-// ==================== SIGNAL LEARNING IN MODAL ====================
-
+// Signal learning countdown
 function startLearning() {
   state.learning = true;
   state.learnCountdown = 15;
   els.learnBtnText.textContent = `Listening (${state.learnCountdown}s)...`;
   els.modalLearnBtn.classList.add('learning-pulse');
-  els.modalLearnBtn.className = 'flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition bg-amber-500 text-black shadow-lg shadow-amber-500/35 learning-pulse';
   setWaveformLearning(true);
 
   clearInterval(state.learnTimer);
@@ -693,7 +800,6 @@ function stopLearning() {
   clearInterval(state.learnTimer);
   els.learnBtnText.textContent = 'Learn Signal';
   els.modalLearnBtn.classList.remove('learning-pulse');
-  els.modalLearnBtn.className = 'flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold transition bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300';
   setWaveformLearning(false);
 }
 
@@ -715,7 +821,6 @@ els.modalLearnBtn.onclick = async () => {
   }
 };
 
-// Test / Blast button in modal
 els.modalTestBtn.onclick = async () => {
   if (!state.modalCtx || !state.modalCtx.button.signal) return;
   flashWaveformTransmit();
@@ -730,7 +835,6 @@ els.modalTestBtn.onclick = async () => {
   }
 };
 
-// Clear signal
 els.modalClearSignalBtn.onclick = () => {
   if (!state.modalCtx) return;
   state.modalCtx.button.signal = null;
@@ -738,7 +842,6 @@ els.modalClearSignalBtn.onclick = () => {
   toast('Signal cleared. Click "Learn Signal" to record a new one.', 'info');
 };
 
-// Save button from modal
 els.modalSaveBtn.onclick = async () => {
   if (!state.modalCtx) return;
   const { remoteId, button, isNew } = state.modalCtx;
@@ -776,7 +879,6 @@ els.modalSaveBtn.onclick = async () => {
   }
 };
 
-// Delete button from modal
 els.modalDeleteBtn.onclick = async () => {
   if (!state.modalCtx || state.modalCtx.isNew) return;
   const { remoteId, button } = state.modalCtx;
@@ -808,8 +910,7 @@ els.modalBackdrop.onclick = (e) => {
   if (e.target === els.modalBackdrop) closeModal();
 };
 
-// ==================== NEW REMOTE / PLACE MODAL WORKFLOW ====================
-
+// ==================== NEW REMOTE / PLACE MODAL ====================
 function openNewRemoteModal() {
   state.selectedNewRemoteType = 'ac';
   els.newRemoteNameInput.value = '';
@@ -899,12 +1000,11 @@ els.newRemoteCreateBtn.onclick = async () => {
   try {
     const remote = await saveRemote({ name, icon, buttons: initialButtons });
     state.remotes.push(remote);
-    state.expandedPlaceIds.add(remote.id); // auto-expand newly created place!
+    state.expandedPlaceIds.add(remote.id);
     renderPlacesAccordion();
     closeNewRemoteModal();
     toast(`Created place "${remote.name}"`, 'ok');
 
-    // Smooth scroll to the newly created place
     const el = document.getElementById(`place-item-${remote.id}`);
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   } catch (e) {
@@ -912,7 +1012,6 @@ els.newRemoteCreateBtn.onclick = async () => {
   }
 };
 
-// Expand All / Collapse All
 els.expandAllBtn.onclick = () => {
   state.remotes.forEach(r => state.expandedPlaceIds.add(r.id));
   renderPlacesAccordion();
@@ -923,8 +1022,470 @@ els.collapseAllBtn.onclick = () => {
   renderPlacesAccordion();
 };
 
-// ==================== WEBSOCKET INTEGRATION ====================
+// ==================== AUTOMATION: ROUTINES ====================
+function describeSteps(steps) {
+  const labels = (steps || []).map((s) => {
+    const remote = state.remotes.find((r) => r.id === s.remoteId);
+    const button = remote && (remote.buttons || []).find((b) => b.id === s.buttonId);
+    const buttonName = button ? button.label : '?';
+    const remoteName = remote ? remote.name : '?';
+    return `${remoteName}:${buttonName}`;
+  });
+  return labels.length > 3 ? labels.slice(0, 3).join(' ➔ ') + ' ➔ ...' : labels.join(' ➔ ');
+}
 
+function renderRoutinesList() {
+  updateNavBadges();
+  els.routinesList.innerHTML = '';
+
+  if (state.routines.length === 0) {
+    els.routinesList.innerHTML = `
+      <div class="surface-card rounded-2xl p-8 border border-[var(--border)] text-center max-w-md mx-auto my-6">
+        <div class="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto mb-3">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </div>
+        <h3 class="text-sm font-bold text-white mb-1">No Automation Routines Yet</h3>
+        <p class="text-xs text-[var(--text-dim)] mb-4">Chain multiple button presses with custom delays to control ACs, TV setups, and room environments with a single click.</p>
+        <button id="emptyNewRoutineBtn" class="btn-primary text-xs font-semibold">+ Create First Routine</button>
+      </div>
+    `;
+    document.getElementById('emptyNewRoutineBtn').onclick = () => openRoutineModal(null);
+    return;
+  }
+
+  state.routines.forEach((routine) => {
+    const card = document.createElement('div');
+    card.className = 'automation-card flex flex-col sm:flex-row sm:items-center justify-between gap-3.5';
+
+    const info = document.createElement('div');
+    info.className = 'min-w-0';
+    info.innerHTML = `
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-md bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        </div>
+        <span class="text-base font-bold text-white tracking-wide truncate">${escapeHtml(routine.name)}</span>
+        <span class="text-[10px] mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">${routine.steps.length} steps</span>
+      </div>
+      <p class="text-xs text-[var(--text-muted)] mono mt-1.5 pl-8">
+        ${escapeHtml(describeSteps(routine.steps))}
+      </p>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-2 shrink-0 self-end sm:self-center';
+
+    const runBtn = document.createElement('button');
+    runBtn.className = 'btn-run text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md shadow-emerald-500/20';
+    runBtn.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      <span>Run</span>
+    `;
+    runBtn.onclick = () => runRoutineNow(routine);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-secondary text-xs px-3 py-1.5 rounded-xl';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openRoutineModal(routine);
+
+    actions.appendChild(runBtn);
+    actions.appendChild(editBtn);
+    card.appendChild(info);
+    card.appendChild(actions);
+    els.routinesList.appendChild(card);
+  });
+}
+
+async function runRoutineNow(routine) {
+  flashWaveformTransmit();
+  try {
+    await runRoutine(routine.id);
+    toast(`Executed routine "${routine.name}"`, 'ok');
+  } catch (e) {
+    toast(`Routine execution failed: ${e.message}`, 'error');
+  }
+}
+
+function openRoutineModal(routine) {
+  state.editingRoutineId = routine ? routine.id : null;
+  state.routineDraftSteps = routine ? routine.steps.map((s) => ({ ...s })) : [];
+
+  els.routineModalTitle.innerHTML = `<span>${routine ? `Edit "${escapeHtml(routine.name)}"` : 'Create Automation Routine'}</span>`;
+  els.routineNameInput.value = routine ? routine.name : '';
+  els.routineStepDelay.value = '';
+  els.routineDeleteBtn.classList.toggle('hidden', !routine);
+
+  populateRemoteSelect(els.routineStepRemote);
+  populateButtonSelect(els.routineStepButton, els.routineStepRemote.value);
+  renderRoutineSteps();
+
+  els.routineModalBackdrop.classList.remove('hidden');
+  els.routineModalBackdrop.classList.add('flex');
+}
+
+function closeRoutineModal() {
+  els.routineModalBackdrop.classList.add('hidden');
+  els.routineModalBackdrop.classList.remove('flex');
+  state.editingRoutineId = null;
+  state.routineDraftSteps = [];
+}
+
+function renderRoutineSteps() {
+  els.routineStepsList.innerHTML = '';
+  if (state.routineDraftSteps.length === 0) {
+    els.routineStepsList.innerHTML = '<p class="text-xs text-slate-400 mono p-2 text-center">No steps added yet</p>';
+    return;
+  }
+
+  state.routineDraftSteps.forEach((step, i) => {
+    const remote = state.remotes.find((r) => r.id === step.remoteId);
+    const button = remote && (remote.buttons || []).find((b) => b.id === step.buttonId);
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-2 bg-[#0d1627] rounded-xl px-3 py-2 text-xs border border-[var(--border)]';
+
+    const label = document.createElement('span');
+    label.className = 'mono truncate text-slate-200';
+    label.innerHTML = `
+      <span class="text-blue-400 font-bold">${i + 1}.</span> 
+      <span class="font-semibold text-white">${remote ? escapeHtml(remote.name) : '?'}</span> 
+      <span class="text-slate-400">/</span> 
+      <span class="font-bold text-emerald-400">${button ? escapeHtml(button.label) : '?'}</span>
+      ${step.delayMs ? `<span class="text-amber-300 font-medium ml-1.5">(+${step.delayMs}ms delay)</span>` : ''}
+    `;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-danger px-2 py-0.5 text-[10px] shrink-0 font-bold';
+    removeBtn.textContent = 'Remove';
+    removeBtn.onclick = () => {
+      state.routineDraftSteps.splice(i, 1);
+      renderRoutineSteps();
+    };
+
+    row.appendChild(label);
+    row.appendChild(removeBtn);
+    els.routineStepsList.appendChild(row);
+  });
+}
+
+els.newRoutineBtn.onclick = () => {
+  if (state.remotes.length === 0) {
+    toast('Create a place with buttons first', 'error');
+    return;
+  }
+  openRoutineModal(null);
+};
+
+els.routineStepRemote.onchange = () => populateButtonSelect(els.routineStepButton, els.routineStepRemote.value);
+
+els.routineAddStepBtn.onclick = () => {
+  const remoteId = els.routineStepRemote.value;
+  const buttonId = els.routineStepButton.value;
+  if (!remoteId || !buttonId) {
+    toast('Pick a remote and a button first', 'error');
+    return;
+  }
+  const delayMs = parseInt(els.routineStepDelay.value, 10);
+  state.routineDraftSteps.push({ remoteId, buttonId, delayMs: Number.isInteger(delayMs) ? delayMs : 0 });
+  els.routineStepDelay.value = '';
+  renderRoutineSteps();
+};
+
+els.routineSaveBtn.onclick = async () => {
+  const name = els.routineNameInput.value.trim();
+  if (!name) { toast('Routine needs a name', 'error'); return; }
+  if (state.routineDraftSteps.length === 0) { toast('Add at least one step', 'error'); return; }
+
+  const payload = { name, steps: state.routineDraftSteps };
+  if (state.editingRoutineId) payload.id = state.editingRoutineId;
+
+  try {
+    const saved = await saveRoutine(payload);
+    const existing = state.routines.find((r) => r.id === saved.id);
+    if (existing) Object.assign(existing, saved); else state.routines.push(saved);
+    closeRoutineModal();
+    renderRoutinesList();
+    toast(`Saved routine "${saved.name}"`, 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.routineDeleteBtn.onclick = async () => {
+  const id = state.editingRoutineId;
+  if (!id) return;
+  const routine = state.routines.find((r) => r.id === id);
+  if (!confirm(`Delete routine "${routine ? routine.name : ''}"?`)) return;
+  try {
+    await deleteRoutine(id);
+    state.routines = state.routines.filter((r) => r.id !== id);
+    closeRoutineModal();
+    renderRoutinesList();
+    toast(`Deleted routine "${routine.name}"`, 'info');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.routineModalClose.onclick = closeRoutineModal;
+els.routineCancelBtn.onclick = closeRoutineModal;
+els.routineModalBackdrop.onclick = (e) => {
+  if (e.target === els.routineModalBackdrop) closeRoutineModal();
+};
+
+// ==================== AUTOMATION: PRICE RULES ====================
+function describeAction(action) {
+  if (!action) return 'no action';
+  if (action.type === 'routine') {
+    const routine = state.routines.find((r) => r.id === action.routineId);
+    return `routine "${routine ? routine.name : action.routineId}"`;
+  }
+  const remote = state.remotes.find((r) => r.id === action.remoteId);
+  const button = remote && (remote.buttons || []).find((b) => b.id === action.buttonId);
+  return button ? `${remote.name} / ${button.label}` : 'missing button';
+}
+
+function renderRulesList() {
+  updateNavBadges();
+  els.rulesList.innerHTML = '';
+
+  if (state.rules.length === 0) {
+    els.rulesList.innerHTML = `
+      <div class="surface-card rounded-2xl p-8 border border-[var(--border)] text-center max-w-md mx-auto my-6">
+        <div class="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mx-auto mb-3">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="1" x2="12" y2="23"></line>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+          </svg>
+        </div>
+        <h3 class="text-sm font-bold text-white mb-1">No Price Rules Configured</h3>
+        <p class="text-xs text-[var(--text-dim)] mb-4">Set up smart price thresholds to automatically turn on cooling during cheap hours or turn down heating when spot electricity spikes.</p>
+        <button id="emptyNewRuleBtn" class="btn-primary text-xs font-semibold">+ Create First Price Rule</button>
+      </div>
+    `;
+    document.getElementById('emptyNewRuleBtn').onclick = () => openRuleModal(null);
+    return;
+  }
+
+  state.rules.forEach((rule) => {
+    const card = document.createElement('div');
+    card.className = 'automation-card flex flex-col sm:flex-row sm:items-center justify-between gap-3.5';
+
+    const info = document.createElement('div');
+    info.className = 'min-w-0';
+    info.innerHTML = `
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-md bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        </div>
+        <span class="text-base font-bold text-white tracking-wide truncate">${escapeHtml(rule.name)}</span>
+        <span class="text-[10px] mono px-2 py-0.5 rounded-full font-semibold ${
+          rule.enabled
+            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            : 'bg-slate-800 text-slate-400 border border-slate-700'
+        }">${rule.enabled ? 'ACTIVE' : 'PAUSED'}</span>
+      </div>
+      <p class="text-xs text-[var(--text-muted)] mono mt-1.5 pl-8">
+        When price is <span class="text-amber-300 font-bold">${escapeHtml(rule.condition)} ${rule.thresholdCents} c/kWh</span> &rarr; Run <span class="text-blue-300 font-bold">${escapeHtml(describeAction(rule.action))}</span>
+      </p>
+    `;
+
+    const actions = document.createElement('div');
+    actions.className = 'flex items-center gap-2 shrink-0 self-end sm:self-center';
+
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = `text-xs px-3 py-1.5 rounded-xl font-semibold mono ${rule.enabled ? 'btn-secondary' : 'btn-primary'}`;
+    toggleBtn.textContent = rule.enabled ? 'Pause' : 'Enable';
+    toggleBtn.onclick = () => toggleRule(rule);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-secondary text-xs px-3 py-1.5 rounded-xl';
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => openRuleModal(rule);
+
+    actions.appendChild(toggleBtn);
+    actions.appendChild(editBtn);
+    card.appendChild(info);
+    card.appendChild(actions);
+    els.rulesList.appendChild(card);
+  });
+}
+
+async function toggleRule(rule) {
+  try {
+    const saved = await saveRule({ ...rule, enabled: !rule.enabled });
+    Object.assign(rule, saved);
+    renderRulesList();
+    toast(`Rule is now ${rule.enabled ? 'enabled' : 'paused'}`, 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function refreshCurrentPrice() {
+  try {
+    const data = await getCurrentPrice();
+    if (data.priceCents === null || data.priceCents === undefined) {
+      els.currentPriceValue.textContent = '--';
+      els.currentPriceUpdated.textContent = data.cachedBlocks ? 'no block covers now' : 'no price data cached';
+      return;
+    }
+    els.currentPriceValue.textContent = `${data.priceCents.toFixed(2)} c/kWh`;
+    els.currentPriceUpdated.textContent = data.fetchedAt
+      ? `updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
+      : 'live spot';
+  } catch (e) {
+    els.currentPriceValue.textContent = '--';
+    els.currentPriceUpdated.textContent = 'price unavailable';
+  }
+}
+
+function openRuleModal(rule) {
+  state.editingRuleId = rule ? rule.id : null;
+
+  els.ruleModalTitle.innerHTML = `<span>${rule ? `Edit "${escapeHtml(rule.name)}"` : 'Create Price Rule'}</span>`;
+  els.ruleNameInput.value = rule ? rule.name : '';
+  els.ruleConditionSelect.value = rule ? rule.condition : 'below';
+  els.ruleThresholdInput.value = rule ? rule.thresholdCents : '';
+  els.ruleActionType.value = rule && rule.action ? rule.action.type : 'button';
+  els.ruleEnabledCheckbox.checked = rule ? rule.enabled !== false : true;
+  els.ruleDeleteBtn.classList.toggle('hidden', !rule);
+
+  populateRemoteSelect(els.ruleTargetRemote);
+  populateRoutineSelect(els.ruleTargetRoutine);
+
+  if (rule && rule.action && rule.action.type === 'button') {
+    els.ruleTargetRemote.value = rule.action.remoteId;
+    populateButtonSelect(els.ruleTargetButton, rule.action.remoteId);
+    els.ruleTargetButton.value = rule.action.buttonId;
+  } else {
+    populateButtonSelect(els.ruleTargetButton, els.ruleTargetRemote.value);
+    if (rule && rule.action && rule.action.routineId) els.ruleTargetRoutine.value = rule.action.routineId;
+  }
+
+  syncRuleActionRows();
+
+  els.ruleModalBackdrop.classList.remove('hidden');
+  els.ruleModalBackdrop.classList.add('flex');
+}
+
+function closeRuleModal() {
+  els.ruleModalBackdrop.classList.add('hidden');
+  els.ruleModalBackdrop.classList.remove('flex');
+  state.editingRuleId = null;
+}
+
+function syncRuleActionRows() {
+  const isRoutine = els.ruleActionType.value === 'routine';
+  els.ruleButtonTargetRow.classList.toggle('hidden', isRoutine);
+  els.ruleRoutineTargetRow.classList.toggle('hidden', !isRoutine);
+}
+
+els.newRuleBtn.onclick = () => {
+  if (state.remotes.length === 0 && state.routines.length === 0) {
+    toast('Create a place or a routine first', 'error');
+    return;
+  }
+  openRuleModal(null);
+};
+
+els.ruleActionType.onchange = syncRuleActionRows;
+els.ruleTargetRemote.onchange = () => populateButtonSelect(els.ruleTargetButton, els.ruleTargetRemote.value);
+
+els.ruleSaveBtn.onclick = async () => {
+  const name = els.ruleNameInput.value.trim();
+  if (!name) { toast('Rule needs a name', 'error'); return; }
+
+  const thresholdCents = parseFloat(els.ruleThresholdInput.value);
+  if (!Number.isFinite(thresholdCents)) { toast('Threshold must be a valid number', 'error'); return; }
+
+  let action;
+  if (els.ruleActionType.value === 'routine') {
+    if (!els.ruleTargetRoutine.value) { toast('Pick a routine to trigger', 'error'); return; }
+    action = { type: 'routine', routineId: els.ruleTargetRoutine.value };
+  } else {
+    if (!els.ruleTargetRemote.value || !els.ruleTargetButton.value) { toast('Pick a remote and a button to trigger', 'error'); return; }
+    action = { type: 'button', remoteId: els.ruleTargetRemote.value, buttonId: els.ruleTargetButton.value };
+  }
+
+  const payload = {
+    name,
+    enabled: els.ruleEnabledCheckbox.checked,
+    condition: els.ruleConditionSelect.value,
+    thresholdCents,
+    action,
+  };
+  if (state.editingRuleId) payload.id = state.editingRuleId;
+
+  try {
+    const saved = await saveRule(payload);
+    const existing = state.rules.find((r) => r.id === saved.id);
+    if (existing) Object.assign(existing, saved); else state.rules.push(saved);
+    closeRuleModal();
+    renderRulesList();
+    toast(`Saved price rule "${saved.name}"`, 'ok');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.ruleDeleteBtn.onclick = async () => {
+  const id = state.editingRuleId;
+  if (!id) return;
+  const rule = state.rules.find((r) => r.id === id);
+  if (!confirm(`Delete price rule "${rule ? rule.name : ''}"?`)) return;
+  try {
+    await deleteRule(id);
+    state.rules = state.rules.filter((r) => r.id !== id);
+    closeRuleModal();
+    renderRulesList();
+    toast(`Deleted rule "${rule.name}"`, 'info');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+};
+
+els.ruleModalClose.onclick = closeRuleModal;
+els.ruleCancelBtn.onclick = closeRuleModal;
+els.ruleModalBackdrop.onclick = (e) => {
+  if (e.target === els.ruleModalBackdrop) closeRuleModal();
+};
+
+// ==================== SELECT POPULATORS ====================
+function populateRemoteSelect(select) {
+  select.innerHTML = '';
+  state.remotes.forEach((r) => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    select.appendChild(opt);
+  });
+}
+
+function populateButtonSelect(select, remoteId) {
+  select.innerHTML = '';
+  const remote = state.remotes.find((r) => r.id === remoteId);
+  if (!remote) return;
+  (remote.buttons || []).forEach((b) => {
+    const opt = document.createElement('option');
+    opt.value = b.id;
+    opt.textContent = b.label;
+    select.appendChild(opt);
+  });
+}
+
+function populateRoutineSelect(select) {
+  select.innerHTML = '';
+  state.routines.forEach((r) => {
+    const opt = document.createElement('option');
+    opt.value = r.id;
+    opt.textContent = r.name;
+    select.appendChild(opt);
+  });
+}
+
+// ==================== WEBSOCKET INTEGRATION ====================
 function connectWs() {
   const ws = new WebSocket(WS_URL);
 
@@ -985,12 +1546,11 @@ function onLearnResult(payload) {
 }
 
 // ==================== BOOTSTRAP ====================
-
 async function boot() {
   buildWaveform();
+
   try {
     state.remotes = await getRemotes();
-    // Expand AC remote by default if present, or the first remote
     const acRemote = state.remotes.find(r => (r.name || '').toLowerCase().includes('ac'));
     const defaultRemote = acRemote || state.remotes[0];
     if (defaultRemote) {
@@ -999,8 +1559,19 @@ async function boot() {
   } catch (e) {
     toast(`Could not reach backend: ${e.message}`, 'error');
   }
-  renderPlacesAccordion();
+
+  try {
+    state.routines = await getRoutines();
+    state.rules = await getRules();
+  } catch (e) {
+    console.warn('Could not load automation routines/rules:', e);
+  }
+
+  showView('places');
   connectWs();
+
+  refreshCurrentPrice();
+  setInterval(refreshCurrentPrice, PRICE_POLL_MS);
 }
 
 boot();
