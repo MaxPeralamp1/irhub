@@ -56,21 +56,74 @@ Firmware architecture:
 - **`IRCaptureTask`** (`src/ir_capture.cpp`, medium priority) — a GPIO edge
   interrupt on GP15 timestamps every mark/space transition with the
   microsecond hardware timer (protocol-agnostic raw capture, works with any
-  remote). A repeating timer polls for a 12ms idle gap to detect end-of-frame,
-  then hands the pulse train to the task via a binary semaphore, which
-  formats it as `IrMessage` and queues it for MQTT publish.
+  remote). A repeating 2ms alarm watches for the idle gap that ends a capture,
+  then posts the finished buffer's index to a queue; the task formats it as an
+  `IrMessage` and queues it for MQTT publish. Details worth knowing:
+  - **Two gap thresholds.** `IR_MESSAGE_GAP_US` (55ms) ends the capture;
+    `IR_FRAME_GAP_US` (12ms) only marks a frame boundary. An air conditioner
+    that sends its state as two halves 20–40ms apart therefore arrives as one
+    pulse train, with the gap recorded as an ordinary space, while NEC
+    auto-repeat frames (~110ms apart) stay separate captures.
+    `IR_MESSAGE_GAP_US` must stay under 65535 so an inter-frame gap still fits
+    a `uint16` pulse entry.
+  - **A ring of `IR_CAPTURE_BUFFERS` (4) buffers**, handed over through a queue
+    of indices. Frames completing back-to-back are queued rather than
+    overwriting each other. If every buffer is still in flight the *next*
+    transmission is refused and counted, rather than corrupting a queued one.
+  - **Glitch filtering does not disturb the timebase.** An interval shorter
+    than `IR_MIN_PULSE_US` is discarded *without* advancing the last-edge
+    timestamp, so the interval after it is still measured from the last valid
+    edge instead of being shortened by the spike.
+  - **Truncation is reported, not silent.** Hitting `IR_MAX_PULSES` (800) sets
+    `truncated` on the message; the backend then refuses to transmit that
+    signal and the UI tells you to re-learn the button.
+  - The carrier frequency is **not** measured. The VS1838B demodulates it away
+    before GP15, so `carrier_freq` is always reported as `IR_CARRIER_HZ`.
 - **`IRTransmitTask`** (`src/ir_transmit.cpp`, high priority) — blocks on a
   queue fed by the MQTT subscribe callback, configures the PWM slice on GP14
   for the requested carrier frequency, and gates it on/off for each
   mark/space duration using the hardware microsecond timer for tight timing.
 
-Wire payload schema (used both directions):
+Wire payload schema:
 
 ```json
-{"carrier_freq": 38000, "pulses": [9000, 4500, 560, 560, 560, 1690, ...]}
+{"carrier_freq": 38000, "frame_count": 1, "truncated": false,
+ "pulses": [9000, 4500, 560, 560, 560, 1690, ...]}
 ```
 
 `pulses[0]` is always a mark (LED on), alternating with spaces (LED off).
+
+`frame_count` and `truncated` are outbound metadata on `irhub/learned`:
+`frame_count` is the number of frames in the train (1 for an ordinary
+command, 2 for a typical A/C, more if a key was held during learning), and
+`truncated` means the capture hit `IR_MAX_PULSES` and cannot reproduce the
+original command. The inbound direction (`irhub/send`) needs only
+`carrier_freq` and `pulses`; the decoder ignores unknown keys, so old
+payloads without the metadata still work. The firmware refuses an inbound
+payload carrying more than `IR_MAX_PULSES` pulses rather than transmitting a
+partial frame.
+
+### Capture regression test
+
+The capture path has a host-side test that needs neither hardware nor the ARM
+toolchain — it compiles `src/ir_capture.cpp` against stub FreeRTOS/Pico
+headers with a controllable clock and drives synthetic edge sequences (a NEC
+frame, an A/C sent as two halves, noise spikes, an over-length signal, and
+frames arriving back-to-back):
+
+```bash
+cd firmware/test
+chmod +x run_test.sh && ./run_test.sh
+```
+
+### Memory
+
+`IrMessage` is ~1.6KB at `IR_MAX_PULSES=800`, so the tasks that handle one
+keep it in static storage rather than on the stack, and `configTOTAL_HEAP_SIZE`
+is sized against measured demand (~46KB) rather than left at a round number —
+the FreeRTOS heap is a static array in `.bss`, so unused heap is SRAM nothing
+else can use. `main()` prints `xPortGetFreeHeapSize()` and `sizeof(IrMessage)`
+at boot; check both after changing `IR_MAX_PULSES` or the buffer count.
 
 ## Part 2 — Backend (`backend/`)
 
