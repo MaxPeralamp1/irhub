@@ -36,23 +36,38 @@ Build:
 ```bash
 cd firmware
 mkdir build && cd build
+cmake .. -DPICO_BOARD=pico_w
+make -j4
+```
+
+Flash `irhub_firmware.uf2` by holding BOOTSEL while plugging in the Pico W,
+then copying the file to the mounted RPI-RP2 drive. The hub then waits to be
+given its Wi-Fi network and MQTT broker over Bluetooth — see
+[Provisioning over Bluetooth](#provisioning-over-bluetooth).
+
+For development you can bake in defaults instead, used only while the hub
+has nothing stored:
+
+```bash
 cmake .. -DPICO_BOARD=pico_w \
          -DWIFI_SSID="YourWiFi" \
          -DWIFI_PASSWORD="YourPassword" \
          -DMQTT_BROKER_IP="192.168.1.100" \
          -DMQTT_BROKER_PORT=1883
-make -j4
 ```
 
-Flash `irhub_firmware.uf2` by holding BOOTSEL while plugging in the Pico W,
-then copying the file to the mounted RPI-RP2 drive.
+A build directory made before provisioning existed has these cached. Clear
+them with `-DWIFI_SSID=""` (or a fresh build directory) if you want a build
+without defaults.
 
 Firmware architecture:
 - **`NetworkTask`** (`src/mqtt_manager.cpp`, high priority) — brings up
-  cyw43/Wi-Fi, connects to Mosquitto, subscribes to `irhub/send`, decodes
+  cyw43/Wi-Fi with the settings from `net_config` (flash, else the build
+  defaults), connects to Mosquitto, subscribes to `irhub/send`, decodes
   incoming JSON into an `IrMessage` and pushes it to the transmit queue;
   drains the capture queue and publishes each entry to `irhub/learned`;
-  auto-reconnects Wi-Fi and MQTT on drop.
+  auto-reconnects on drop (a broker drop reconnects MQTT only, not Wi-Fi).
+  It also runs the BLE provisioning flow in `src/ble_provision.cpp`.
 - **`IRCaptureTask`** (`src/ir_capture.cpp`, medium priority) — a GPIO edge
   interrupt on GP15 timestamps every mark/space transition with the
   microsecond hardware timer (protocol-agnostic raw capture, works with any
@@ -103,13 +118,62 @@ payloads without the metadata still work. The firmware refuses an inbound
 payload carrying more than `IR_MAX_PULSES` pulses rather than transmitting a
 partial frame.
 
-### Capture regression test
+### Provisioning over Bluetooth
 
-The capture path has a host-side test that needs neither hardware nor the ARM
-toolchain — it compiles `src/ir_capture.cpp` against stub FreeRTOS/Pico
-headers with a controllable clock and drives synthetic edge sequences (a NEC
-frame, an A/C sent as two halves, noise spikes, an over-length signal, and
-frames arriving back-to-back):
+The hub advertises over BLE as **`IRHub-XXXX`** (last four hex digits of its
+Bluetooth address) when:
+
+- it has no stored settings and no build defaults, or
+- its settings keep failing: 3 Wi-Fi joins in a row, or 5 broker connections
+  in a row (a wrong broker IP can only be fixed this way). It keeps retrying
+  the old settings while advertising.
+
+Open the web UI → **📶 Set up hub** → **Find hub**, pick `IRHub-XXXX`, and
+accept the pairing prompt. Enter the SSID, password and broker, then press
+**Apply**. The status line follows the hub as it joins Wi-Fi and connects to
+the broker.
+
+- **New settings are saved only once Wi-Fi *and* MQTT both work with them.** If
+  they fail (2 Wi-Fi or 3 broker attempts), the hub reports why ("Wrong Wi-Fi
+  password", "MQTT broker did not answer", ...) and goes back to its previous
+  settings. A typo can't lock you out.
+- Once online, Bluetooth turns off when the page disconnects, or 20 s after
+  going online if nothing is connected (5 min at most).
+- Leave the password blank to keep the current one (for example when only the
+  broker moved). Tick **Open network** for a network without a password.
+- **Forget stored settings** erases them. The hub falls back to its build
+  defaults, or waits to be set up again. Flashing
+  [`flash_nuke.uf2`](https://datasheets.raspberrypi.com/soft/flash_nuke.uf2)
+  does the same.
+
+Things to know:
+
+- **Stored settings win over the `-D` build defaults.** Flashing a new UF2 does
+  not erase them. They live in the flash sector just below BTstack's bond
+  storage at the top of flash.
+- **Web Bluetooth needs a secure page.** Use `http://localhost:8080` on the
+  machine serving the frontend, or serve it over HTTPS. It works in Chrome and
+  Edge on desktop and Android, but not in Firefox or on iOS. On Linux, Chrome
+  may need `chrome://flags/#enable-experimental-web-platform-features`. nRF
+  Connect on a phone also works; the characteristics are listed in
+  `firmware/src/irhub_provision.gatt`.
+- **Security:** pairing is LE Secure Connections "Just Works". The link is
+  encrypted but has no man-in-the-middle protection. While the hub is
+  advertising, anyone in Bluetooth range can give it new settings. The
+  password can be written but never read back.
+- Saving to flash turns interrupts off for about 45 ms, so an IR capture in
+  progress at that moment is lost. This only happens right after a successful
+  provision.
+
+### Host tests
+
+The capture path and the stored-settings record have host-side tests that
+need neither hardware nor the ARM toolchain. The capture test compiles
+`src/ir_capture.cpp` against stub FreeRTOS/Pico headers with a controllable
+clock and drives synthetic edge sequences (a NEC frame, an A/C sent as two
+halves, noise spikes, an over-length signal, and frames arriving
+back-to-back). The `net_config` test covers the flash record's CRC and
+parsing, and field validation:
 
 ```bash
 cd firmware/test
@@ -124,6 +188,9 @@ is sized against measured demand (~46KB) rather than left at a round number —
 the FreeRTOS heap is a static array in `.bss`, so unused heap is SRAM nothing
 else can use. `main()` prints `xPortGetFreeHeapSize()` and `sizeof(IrMessage)`
 at boot; check both after changing `IR_MAX_PULSES` or the buffer count.
+BTstack (BLE provisioning) is configured without malloc in
+`firmware/btstack_config.h` and costs about 6KB of static RAM. The link step
+prints RAM/FLASH usage (`--print-memory-usage`).
 
 ## Part 2 — Backend (`backend/`)
 
@@ -173,6 +240,8 @@ before `app.js` loads:
 ```
 
 UI flow:
+0. First time only: **📶 Set up hub** gives the Pico W its Wi-Fi and broker
+   over Bluetooth (see [Provisioning over Bluetooth](#provisioning-over-bluetooth)).
 1. Create a remote from the sidebar ("+ New").
 2. Add buttons ("+ Add Button" or the trailing `+` tile in the grid).
 3. Tap an unmapped button (or right-click / long-press any button) to open

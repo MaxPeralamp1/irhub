@@ -77,6 +77,22 @@ const els = {
   ruleEnabledCheckbox: document.getElementById('ruleEnabledCheckbox'),
   ruleSaveBtn: document.getElementById('ruleSaveBtn'),
   ruleDeleteBtn: document.getElementById('ruleDeleteBtn'),
+
+  navSetupBtn: document.getElementById('navSetupBtn'),
+  setupView: document.getElementById('setupView'),
+  setupUnsupported: document.getElementById('setupUnsupported'),
+  setupDeviceName: document.getElementById('setupDeviceName'),
+  setupFindBtn: document.getElementById('setupFindBtn'),
+  setupForm: document.getElementById('setupForm'),
+  setupSsid: document.getElementById('setupSsid'),
+  setupPassword: document.getElementById('setupPassword'),
+  setupShowPassBtn: document.getElementById('setupShowPassBtn'),
+  setupOpenNetwork: document.getElementById('setupOpenNetwork'),
+  setupHost: document.getElementById('setupHost'),
+  setupPort: document.getElementById('setupPort'),
+  setupApplyBtn: document.getElementById('setupApplyBtn'),
+  setupForgetBtn: document.getElementById('setupForgetBtn'),
+  setupStatus: document.getElementById('setupStatus'),
 };
 
 //API helpers
@@ -229,13 +245,16 @@ function showView(view){
   els.emptyState.classList.toggle('hidden', view !== 'remote' || state.remotes.length > 0);
   els.routinesView.classList.toggle('hidden', view !== 'routines');
   els.rulesView.classList.toggle('hidden', view !== 'rules');
+  els.setupView.classList.toggle('hidden', view !== 'setup');
 
   els.navRoutinesBtn.classList.toggle('surface-2', view === 'routines');
   els.navRulesBtn.classList.toggle('surface-2', view === 'rules');
+  els.navSetupBtn.classList.toggle('surface-2', view === 'setup');
 
   if (view === 'remote') renderRemoteView();
   if (view === 'routines') renderRoutinesList();
   if (view === 'rules') { renderRulesList(); refreshCurrentPrice(); }
+  if (view === 'setup') renderSetupSupport();
 }
 
 function describeSteps(steps) {
@@ -591,6 +610,7 @@ els.remoteNameInput.addEventListener('blur', () => {
 
 els.navRoutinesBtn.onclick = () => showView('routines');
 els.navRulesBtn.onclick = () => showView('rules');
+els.navSetupBtn.onclick = () => showView('setup');
 
 
 //Select helpers shared by both automation modals
@@ -926,6 +946,259 @@ function onLearnResult(payload) {
     }
   }
 }
+
+
+//Hub setup: BLE provisioning over Web Bluetooth
+//
+//The UUIDs, status layout and command bytes mirror
+//firmware/src/irhub_provision.gatt and ble_provision.cpp - all three move
+//together.
+
+const PROV = {
+  service: 'be3d7600-0ea0-4e96-82e0-89aa6a3dc19f',
+  chars: {
+    ssid:     'be3d7601-0ea0-4e96-82e0-89aa6a3dc19f',
+    password: 'be3d7602-0ea0-4e96-82e0-89aa6a3dc19f',
+    status:   'be3d7603-0ea0-4e96-82e0-89aa6a3dc19f',
+    host:     'be3d7604-0ea0-4e96-82e0-89aa6a3dc19f',
+    port:     'be3d7605-0ea0-4e96-82e0-89aa6a3dc19f',
+    command:  'be3d7606-0ea0-4e96-82e0-89aa6a3dc19f',
+  },
+  CMD_APPLY: 0x01,
+  CMD_FORGET: 0x02,
+};
+
+const PROV_STATE = {
+  UNPROVISIONED: 0, IDLE: 1, WIFI_CONNECTING: 2, WIFI_FAILED: 3, MQTT_CONNECTING: 4,
+  MQTT_FAILED: 5, ONLINE: 6, REVERTED: 7, INVALID: 8, SAVE_FAILED: 9,
+};
+
+const setup = { device: null, chars: null, lastState: null };
+
+function renderSetupSupport() {
+  let msg = '';
+  if (!window.isSecureContext) {
+    msg = 'Web Bluetooth only works on a secure page. Open this UI at http://localhost:8080 ' +
+          'on the machine serving it, or over HTTPS.';
+  } else if (!navigator.bluetooth) {
+    msg = 'This browser has no Web Bluetooth. Use Chrome or Edge on desktop or Android ' +
+          '(not Firefox or iOS Safari). On Linux, Chrome may need ' +
+          'chrome://flags/#enable-experimental-web-platform-features.';
+  }
+  els.setupUnsupported.textContent = msg;
+  els.setupUnsupported.classList.toggle('hidden', !msg);
+  els.setupFindBtn.disabled = !!msg;
+}
+
+function setSetupStatus(text, kind = 'info') {
+  els.setupStatus.textContent = text;
+  els.setupStatus.style.color = kind === 'error' ? 'var(--danger)' : kind === 'ok' ? 'var(--ok)' : '';
+}
+
+function describeProvStatus(view) {
+  const state = view.getUint8(0);
+  const reason = view.getInt8(1);
+  const ip = [2, 3, 4, 5].map((i) => view.getUint8(i)).join('.');
+  const attempt = view.getUint8(6);
+  const source = ['stored settings', 'new settings', 'build defaults'][view.getUint8(7)] || 'settings';
+  const nth = attempt > 1 ? ` (attempt ${attempt})` : '';
+
+  switch (state) {
+    case PROV_STATE.UNPROVISIONED:
+      return ['The hub has no settings yet — enter them below.', 'info'];
+    case PROV_STATE.IDLE:
+      return ['Connected to the hub.', 'info'];
+    case PROV_STATE.WIFI_CONNECTING:
+      return [`Joining Wi-Fi with ${source}${nth}…`, 'info'];
+    case PROV_STATE.WIFI_FAILED:
+      return [`${[
+        'Wi-Fi failed', 'Wi-Fi network not found or not answering', 'Wrong Wi-Fi password', 'Wi-Fi connection failed',
+      ][reason] || 'Wi-Fi failed'} (${source})${nth}.`, 'error'];
+    case PROV_STATE.MQTT_CONNECTING:
+      return [`Wi-Fi OK, connecting to the MQTT broker with ${source}${nth}…`, 'info'];
+    case PROV_STATE.MQTT_FAILED:
+      return [`${[
+        'MQTT failed', 'MQTT broker did not answer', 'MQTT broker refused the connection', 'Could not reach the MQTT broker',
+      ][reason] || 'MQTT failed'} (${source})${nth}.`, 'error'];
+    case PROV_STATE.ONLINE:
+      return [`Online at ${ip} ✓`, 'ok'];
+    case PROV_STATE.REVERTED:
+      return ['The new settings did not work — the hub kept its previous settings.', 'error'];
+    case PROV_STATE.INVALID:
+      return [`The hub rejected the ${['', 'SSID', 'password', 'broker IP', 'port'][reason] || 'settings'}.`, 'error'];
+    case PROV_STATE.SAVE_FAILED:
+      return ['Online, but the settings could not be saved to flash — they will be lost on reboot.', 'error'];
+    default:
+      return [`Unknown status ${state}.`, 'info'];
+  }
+}
+
+function onProvStatus(view) {
+  if (view.byteLength < 8) return;
+  setup.lastState = view.getUint8(0);
+  const [text, kind] = describeProvStatus(view);
+  setSetupStatus(text, kind);
+}
+
+function resetSetupUi() {
+  setup.device = null;
+  setup.chars = null;
+  els.setupForm.disabled = true;
+  els.setupPassword.value = '';
+  els.setupDeviceName.textContent = 'not connected';
+  els.setupFindBtn.textContent = 'Find hub';
+}
+
+function onSetupDisconnected() {
+  const wasOnline = setup.lastState === PROV_STATE.ONLINE;
+  resetSetupUi();
+  if (wasOnline) {
+    setSetupStatus('Hub is online — it has turned Bluetooth off.', 'ok');
+  } else {
+    setSetupStatus('Disconnected from the hub.', 'info');
+  }
+}
+
+async function setupFind() {
+  if (setup.device) {
+    setup.device.gatt.disconnect();
+    return;
+  }
+
+  let device;
+  try {
+    //Must be the first await: the browser only shows the chooser from a click.
+    device = await navigator.bluetooth.requestDevice({ filters: [{ services: [PROV.service] }] });
+  } catch (e) {
+    if (e.name !== 'NotFoundError') toast(`Bluetooth: ${e.message}`, 'error');
+    return;
+  }
+
+  setup.device = device;
+  setup.lastState = null;
+  device.addEventListener('gattserverdisconnected', onSetupDisconnected);
+  els.setupDeviceName.textContent = device.name || 'IR Hub';
+  els.setupFindBtn.textContent = 'Disconnect';
+  setSetupStatus('Connecting… your system may ask to pair with the hub.');
+
+  try {
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(PROV.service);
+    const chars = {};
+    for (const [name, uuid] of Object.entries(PROV.chars)) {
+      chars[name] = await service.getCharacteristic(uuid);
+    }
+    setup.chars = chars;
+
+    //Every value needs an encrypted link, so this is where pairing happens.
+    chars.status.addEventListener('characteristicvaluechanged', (e) => onProvStatus(e.target.value));
+    await chars.status.startNotifications();
+    onProvStatus(await chars.status.readValue());
+
+    const text = new TextDecoder();
+    els.setupSsid.value = text.decode(await chars.ssid.readValue());
+    els.setupHost.value = text.decode(await chars.host.readValue());
+    els.setupPort.value = (await chars.port.readValue()).getUint16(0, true) || 1883;
+    els.setupPassword.value = '';
+    els.setupOpenNetwork.checked = false;
+    els.setupForm.disabled = false;
+  } catch (e) {
+    toast(`Bluetooth: ${e.message}`, 'error');
+    if (device.gatt.connected) device.gatt.disconnect();
+    else resetSetupUi();
+  }
+}
+
+function byteLength(s) {
+  return new TextEncoder().encode(s).length;
+}
+
+//Same rules as net_config::validate() in the firmware.
+function validateSetupForm() {
+  const ssid = els.setupSsid.value;
+  const password = els.setupPassword.value;
+  const open = els.setupOpenNetwork.checked;
+  const host = els.setupHost.value.trim();
+  const port = Number(els.setupPort.value);
+
+  const ssidLen = byteLength(ssid);
+  if (ssidLen < 1 || ssidLen > 32) return 'The SSID must be 1–32 bytes.';
+
+  if (!open) {
+    const passLen = byteLength(password);
+    if (passLen === 0 && setup.lastState === PROV_STATE.UNPROVISIONED) {
+      return 'Enter the Wi-Fi password, or tick "Open network".';
+    }
+    if (passLen !== 0 && (passLen < 8 || passLen > 63)) return 'A WPA2 password is 8–63 characters.';
+  }
+
+  const octets = host.split('.');
+  const ipv4 = octets.length === 4 &&
+    octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255) &&
+    octets.some((o) => Number(o) !== 0);
+  if (!ipv4) return 'The broker must be an IPv4 address such as 192.168.1.100.';
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return 'The port must be 1–65535.';
+  return null;
+}
+
+async function setupApply() {
+  if (!setup.chars) return;
+  const problem = validateSetupForm();
+  if (problem) {
+    toast(problem, 'error');
+    return;
+  }
+
+  const c = setup.chars;
+  const text = new TextEncoder();
+  const port = new Uint8Array(2);
+  new DataView(port.buffer).setUint16(0, Number(els.setupPort.value), true);
+
+  els.setupApplyBtn.disabled = true;
+  try {
+    await c.ssid.writeValueWithResponse(text.encode(els.setupSsid.value));
+    //Not writing the password keeps the hub's current one.
+    if (els.setupOpenNetwork.checked) {
+      await c.password.writeValueWithResponse(new Uint8Array(0));
+    } else if (els.setupPassword.value) {
+      await c.password.writeValueWithResponse(text.encode(els.setupPassword.value));
+    }
+    await c.host.writeValueWithResponse(text.encode(els.setupHost.value.trim()));
+    await c.port.writeValueWithResponse(port);
+    await c.command.writeValueWithResponse(Uint8Array.of(PROV.CMD_APPLY));
+    els.setupPassword.value = '';
+    setSetupStatus('Settings sent — the hub is trying them…');
+  } catch (e) {
+    toast(`The hub rejected the settings: ${e.message}`, 'error');
+  } finally {
+    els.setupApplyBtn.disabled = false;
+  }
+}
+
+async function setupForget() {
+  if (!setup.chars) return;
+  if (!confirm('Erase the Wi-Fi and broker settings stored on the hub? It will fall back to its build defaults, or wait to be set up again.')) return;
+  try {
+    await setup.chars.command.writeValueWithResponse(Uint8Array.of(PROV.CMD_FORGET));
+    toast('Stored settings erased', 'ok');
+  } catch (e) {
+    toast(`Could not erase settings: ${e.message}`, 'error');
+  }
+}
+
+els.setupFindBtn.onclick = setupFind;
+els.setupApplyBtn.onclick = setupApply;
+els.setupForgetBtn.onclick = setupForget;
+els.setupShowPassBtn.onclick = () => {
+  const show = els.setupPassword.type === 'password';
+  els.setupPassword.type = show ? 'text' : 'password';
+  els.setupShowPassBtn.textContent = show ? 'hide' : 'show';
+};
+els.setupOpenNetwork.onchange = () => {
+  els.setupPassword.disabled = els.setupOpenNetwork.checked;
+  if (els.setupOpenNetwork.checked) els.setupPassword.value = '';
+};
 
 
 // Boot

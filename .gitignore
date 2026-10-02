@@ -3,3 +3,5 @@ backend/node_modules/
 backend/db.json
 firmware/test/test_capture
 .idea/
+firmware/test/test_net_config
+firmware/test/test_net_config_defaults

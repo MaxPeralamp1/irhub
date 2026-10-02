@@ -5,8 +5,10 @@
 namespace mqtt_manager {
 void init();
 //FreeRTOS task entry point ("NetworkTask"):
-//brings up cyw43/Wi-Fi, connects to WIFI_SSID
-//connects to the MQTT broker at MQTT_BROKER_IP:MQTT_BROKER_PORT
+//brings up cyw43/Wi-Fi and joins the network from net_config (flash, else
+//the -D build defaults), starting BLE provisioning when there are none or
+//they keep failing
+//connects to the MQTT broker from the same settings
 //subscribes to MQTT_TOPIC_SEND, decodes payloads, pushes to
 //g_mqttToTransmitQueue for IRTransmitTask
 //drains g_captureToMqttQueue and publishes each entry to

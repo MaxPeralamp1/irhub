@@ -22,6 +22,9 @@ add_executable(irhub_firmware
     src/ir_transmit.cpp
     src/mqtt_manager.cpp
     src/json_helper.cpp
+    src/net_config.cpp
+    src/net_config_flash.cpp
+    src/ble_provision.cpp
 )
 
 target_include_directories(irhub_firmware PRIVATE
@@ -29,12 +32,14 @@ target_include_directories(irhub_firmware PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
-# Wi-Fi credentials / broker config can be overridden at build time:
+# Wi-Fi and broker settings are normally provisioned over BLE and stored in
+# flash. These are optional defaults, used only while nothing is stored:
 #   cmake -DWIFI_SSID=... -DWIFI_PASSWORD=... -DMQTT_BROKER_IP=...
-set(WIFI_SSID "YOUR_WIFI_SSID" CACHE STRING "Wi-Fi SSID")
-set(WIFI_PASSWORD "YOUR_WIFI_PASSWORD" CACHE STRING "Wi-Fi password")
-set(MQTT_BROKER_IP "192.168.1.100" CACHE STRING "Mosquitto broker IP")
-set(MQTT_BROKER_PORT "1883" CACHE STRING "Mosquitto broker port")
+# Left empty, an unprovisioned hub starts BLE provisioning at boot.
+set(WIFI_SSID "" CACHE STRING "Default Wi-Fi SSID (optional)")
+set(WIFI_PASSWORD "" CACHE STRING "Default Wi-Fi password (optional)")
+set(MQTT_BROKER_IP "" CACHE STRING "Default Mosquitto broker IPv4 (optional)")
+set(MQTT_BROKER_PORT "1883" CACHE STRING "Default Mosquitto broker port")
 
 target_compile_definitions(irhub_firmware PRIVATE
     WIFI_SSID="${WIFI_SSID}"
@@ -44,6 +49,10 @@ target_compile_definitions(irhub_firmware PRIVATE
     CYW43_HOST_NAME="irhub-pico"
     PICO_MALLOC_PANIC=1
     CYW43_TASK_STACK_SIZE=4096
+    # flash_safe_execute (net_config and BTstack's bond storage) otherwise
+    # refuses to run under FreeRTOS on RP2040. True here: FreeRTOS runs on
+    # core 0 only and core 1 is never launched.
+    PICO_FLASH_ASSUME_CORE1_SAFE=1
 )
 
 target_link_libraries(irhub_firmware
@@ -57,7 +66,18 @@ target_link_libraries(irhub_firmware
     hardware_clocks
     hardware_irq
     FreeRTOS-Kernel-Heap4
+    pico_btstack_ble
+    pico_btstack_cyw43
+    pico_flash
+    hardware_flash
 )
+
+# BLE provisioning GATT table -> generated irhub_provision.h
+pico_btstack_make_gatt_header(irhub_firmware PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/src/irhub_provision.gatt")
+
+# RAM is tight (see FreeRTOSConfig.h); show usage on every link.
+target_link_options(irhub_firmware PRIVATE -Wl,--print-memory-usage)
 
 pico_enable_stdio_usb(irhub_firmware 1)
 pico_enable_stdio_uart(irhub_firmware 0)

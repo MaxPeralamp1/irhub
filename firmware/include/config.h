@@ -47,6 +47,30 @@
 #define MQTT_TOPIC_STATUS   "irhub/status"    //publish: online/offline (LWT)
 #define MQTT_KEEPALIVE_S    30
 
+//Network bring-up and BLE provisioning (see mqtt_manager.cpp, ble_provision.cpp)
+#define WIFI_JOIN_TIMEOUT_MS        15000
+#define MQTT_CONNECT_TIMEOUT_MS     10000
+#define NET_RETRY_DELAY_MS          5000
+//Consecutive failures of the working settings before BLE advertising starts.
+//MQTT counts too, because a wrong broker IP can only be fixed by
+//re-provisioning; it is set higher so a brief broker restart does not trip it.
+#define NET_WIFI_FAILS_BEFORE_BLE   3
+#define NET_MQTT_FAILS_BEFORE_BLE   5
+//Attempts given to settings just received over BLE before reverting.
+#define NET_CANDIDATE_WIFI_TRIES    2
+#define NET_CANDIDATE_MQTT_TRIES    3
+//Once online, BLE stays up this long (or until the client disconnects) so the
+//setup page can receive the final "online" status.
+#define BLE_OFF_GRACE_MS            20000
+//Hard cap, in case a client connects and never leaves.
+#define BLE_ONLINE_MAX_MS           300000
+#define BLE_NAME_PREFIX             "IRHub-"
+
+//NetworkTask notification bits, set from BTstack callbacks
+#define NET_EVT_COMMIT              (1u << 0)  //apply settings staged over BLE
+#define NET_EVT_FORGET              (1u << 1)  //erase stored settings
+#define NET_EVT_BLE_DISCONNECTED    (1u << 2)  //the setup client went away
+
 //Task priorities
 //Higher number = higher priority (matches FreeRTOS convention)
 #define TASK_PRIO_NETWORK    (tskIDLE_PRIORITY + 3)  //High
